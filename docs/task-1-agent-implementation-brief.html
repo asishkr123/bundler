@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module Atlas · Task 1 implementation brief for a coding agent</title>
+<style>
+  :root{--ink:#183047;--muted:#52677a;--blue:#145d8a;--line:#d7e3ee;--wash:#f3f7fb;--good:#e7f5ed;--warn:#fff3dd}
+  *{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font:16px/1.58 system-ui,sans-serif}
+  main{max-width:1100px;margin:auto;padding:3rem 1.3rem 6rem}h1,h2,h3{line-height:1.22}h1{font-size:clamp(2.2rem,5vw,3.7rem);margin:.35rem 0}h2{margin:3rem 0 1rem;border-top:1px solid var(--line);padding-top:2rem}h3{margin:1.5rem 0 .5rem}
+  .eyebrow{color:var(--blue);font-size:.8rem;letter-spacing:.12em;text-transform:uppercase;font-weight:750}.lead{font-size:1.18rem;max-width:800px;color:var(--muted)}
+  .card{background:white;border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.4rem;margin:1rem 0}.warning{background:var(--warn)}.success{background:var(--good)}
+  .scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;background:white;font-size:.91rem}th,td{padding:.68rem .78rem;border:1px solid var(--line);text-align:left;vertical-align:top}th{background:#e8f1f8}
+  code,pre{font:.88em/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}code{background:#e7eef5;border-radius:4px;padding:.1em .3em}pre{background:#142638;color:#e9f5ff;padding:1.1rem;overflow:auto;border-radius:10px}pre code{background:none;color:inherit;padding:0}
+  li{margin:.4rem 0}a{color:#075b8b}.tag{display:inline-block;border-radius:20px;background:#dcedf8;padding:.18rem .6rem;font-size:.78rem;font-weight:700}.muted{color:var(--muted)}
+</style>
+<main>
+  <div class="eyebrow">Agent handoff · Task 1 · 5 October 2026</div>
+  <h1>Finish the first iteration: map and explain an ESM application</h1>
+  <p class="lead">This is the <strong>requirements and verification brief</strong> for the coding agent. It defines what Task 1 must do, how to break it into subtasks, and what must pass. Before modifying code, the agent must write a separate, detailed <strong>code implementation plan</strong> showing the exact file changes and illustrative code. The two plans serve different purposes.</p>
+
+  <div class="card warning"><strong>Current state:</strong> A JavaScript prototype already exists in <code>module-atlas/</code>. It builds a static local ESM graph, writes <code>dist/graph.json</code>, and includes a native ESM demo. Its current unit tests cover four groups of graph behavior. A live browser test has not been completed in the provided workspace because local port binding was blocked. Treat Task 1 as <em>implemented in part, verification pending</em>. Do not claim success based only on the existing tests.</div>
+
+  <h2>1. Goal and scope</h2>
+  <p>Given one or more local JavaScript entry files, report every statically reachable local ESM file, the import edges, its UTF-8 byte count, and one deterministic shortest path explaining why it is included. Provide a CLI JSON report and a local demo that compares those static facts with observed browser resource requests. A developer should be able to read the report and say, “<code>suffix.js</code> is present because <code>main.js</code> imports <code>message.js</code>, which imports <code>suffix.js</code>.”</p>
+  <div class="scroll"><table><tr><th>Input</th><th>Task 1 output</th><th>Explicit limit</th></tr>
+    <tr><td><code>main.js → message.js → suffix.js</code>, plus a button-triggered <code>import('./feature.js')</code> and an HTML-linked CSS file</td><td>Static graph and explanation for the first three JS files; browser table showing actual JS/CSS requests; lazy file observed after click</td><td>The dynamic import and CSS are not graph edges in Task 1. The browser observation must say so clearly.</td></tr>
+    <tr><td>Multiple entries sharing a module</td><td>One canonical module record and a deterministic inclusion path; preserve both entries in <code>entries</code></td><td>No shared chunk generation yet.</td></tr></table></div>
+  <p><strong>Out of scope:</strong> production bundling, rewritten imports, hashed output, TypeScript/JSX input, package imports, CommonJS, tree shaking, minification, CSS dependency analysis, dynamic-import graph edges, HMR, React/Svelte support, source maps, and performance comparisons. TypeScript is the planned language for the growing core in Task 2; completing this existing JavaScript prototype does not require a language migration.</p>
+
+  <h2>2. Existing code to inspect first</h2>
+  <div class="scroll"><table><tr><th>File</th><th>Current responsibility</th><th>What the agent must verify</th></tr>
+    <tr><td><code>src/graph.mjs</code></td><td>Resolve relative JS modules, parse static dependencies with Node VM, traverse cycles, construct paths</td><td>Root boundary, symlink policy, extension order, duplicates, byte count, path determinism, parse errors</td></tr>
+    <tr><td><code>src/cli.mjs</code></td><td><code>inspect</code> JSON writer and local demo server</td><td>Exit codes, bad inputs, repeatable output, HTTP status/content type, traversal and file exposure</td></tr>
+    <tr><td><code>src/browser-inspector.mjs</code></td><td>Join graph paths to Resource Timing entries and render a table</td><td>Initial/lazy observations, missing timing values, safe DOM rendering, honest explanation labels</td></tr>
+    <tr><td><code>test/graph.test.mjs</code></td><td>Temporary-file fixtures for graph behavior</td><td>Expand focused tests and add CLI/server/browser coverage; do not merely mirror implementation</td></tr>
+    <tr><td><code>examples/vanilla/*</code>, <code>README.md</code>, <code>docs/architecture.html</code>, <code>package.json</code></td><td>Demo, instructions, architecture, scripts</td><td>Keep commands and claims consistent with actually verified behavior</td></tr></table></div>
+
+  <h2>3. Subtasks and mandatory tests</h2>
+  <p>Each row is a delivery gate. The agent may refine exact filenames in its code plan, but it must preserve the observable behavior and test IDs. For a blocked browser environment, mark browser tests <em>blocked</em>, run all other tests, and give a reproducible command for a machine that permits binding a local port. A blocked gate is not a pass.</p>
+
+  <h3>T1.1 · Define the Task 1 contract and fixtures</h3>
+  <p>Document the supported inputs (<code>.js</code>/<code>.mjs</code>, relative static ESM imports and re-exports), unsupported inputs, entry order, canonical path form, graph JSON fields, and meaning of <code>why</code>. Decide whether repeated occurrences of the same import are represented once or more than once, and document it. Use small reusable fixtures for a chain, diamond, cycle, two entries, side-effect import, re-export, and invalid file.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>C1</td><td>Run a baseline graph of <code>main → message → suffix</code></td><td>Exact module IDs, entries, edge targets, and explanation path match a documented JSON example.</td></tr>
+    <tr><td>C2</td><td>Run the same input twice in different fresh processes</td><td>Serialized JSON bytes are identical; no timestamps, machine-specific absolute paths, or traversal-order surprises.</td></tr>
+    <tr><td>C3</td><td>Unsupported feature fixture</td><td>It fails with an actionable error, or is explicitly labelled outside the graph; never silently reported as analyzed.</td></tr></table></div>
+
+  <h3>T1.2 · Resolve entry points and local imports safely</h3>
+  <p>Resolve relative specifiers from the importing file and canonicalize paths to project-relative forward-slash IDs. Keep the documented extension and <code>index</code> lookup order. A <code>../</code> import is valid if its final file stays within the root. Reject bare/absolute specifiers and query/hash suffixes for this task. Decide a symlink policy and enforce it against the <em>resolved real path</em>, since a lexical root check alone does not prevent a symlink from escaping the root.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>R1</td><td><code>./util</code>, <code>./util.js</code>, <code>./nested/index.js</code>, and valid <code>../shared.js</code></td><td>Each resolves to the expected canonical ID; precedence is deterministic.</td></tr>
+    <tr><td>R2</td><td>Missing entry, missing imported file, directory instead of file</td><td>Nonzero result with importer/specifier or entry context; no partial success report.</td></tr>
+    <tr><td>R3</td><td>Bare import, absolute import, query/hash import</td><td>Explicit unsupported-input error naming the specifier.</td></tr>
+    <tr><td>R4</td><td>Import outside the root by <code>../</code> or by a symlink to an outside file</td><td>Both are rejected. Skip symlink creation only on a platform that forbids it and record that limitation.</td></tr>
+    <tr><td>R5</td><td>Two spellings of the same file, including an allowed in-root symlink if supported</td><td>Graph identity follows the documented canonicalization policy; no accidental duplicate node.</td></tr></table></div>
+
+  <h3>T1.3 · Parse and traverse the static ESM graph</h3>
+  <p>Parse the file as a module; collect static imports and re-exports, including side-effect imports. Do not search source text with a regular expression. Mark a module before following its imports so cycles terminate. The current Node VM parser is acceptable for Task 1, with the experimental flag and limitation documented. Do not call dynamic imports static edges.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>G1</td><td>Named/default/namespace/side-effect imports; <code>export * from</code> and <code>export { x } from</code></td><td>Every static dependency has the correct importer and target; exported names need not be analyzed yet.</td></tr>
+    <tr><td>G2</td><td>Import-looking text inside a string or comment</td><td>No false dependency edge.</td></tr>
+    <tr><td>G3</td><td>Self import, A↔B cycle, diamond, and shared dependency from two entries</td><td>Traversal terminates; each canonical module is visited once; expected edges remain.</td></tr>
+    <tr><td>G4</td><td>Malformed syntax</td><td>Error includes the source file; no graph JSON is emitted for that invocation.</td></tr>
+    <tr><td>G5</td><td>Literal <code>import('./lazy.js')</code></td><td>The static graph excludes <code>lazy.js</code>; docs and UI do not imply otherwise.</td></tr></table></div>
+
+  <h3>T1.4 · Compute explainable paths and serialize the report</h3>
+  <p>Emit one shortest static path per module, with entries considered in declared order and import edges considered in source order for ties. Sort module records by canonical ID. Count file bytes in UTF-8. A path is an <em>inclusion explanation</em>, not a claim of execution order, request initiator, or the only path to a shared module. Keep the schema version and make the JSON serializable without absolute paths.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>E1</td><td>Chain, diamond, equal-length paths, multiple entries</td><td>Shortest path is correct; ties follow the documented order; every reachable module has a path.</td></tr>
+    <tr><td>E2</td><td>Cycle and Unicode source text</td><td>No infinite path; byte count equals <code>Buffer.byteLength(source, 'utf8')</code>, not character count.</td></tr>
+    <tr><td>E3</td><td>Snapshot of a fixed fixture, run twice</td><td>Same schema version, sorted modules, stable import order, stable bytes and explanations.</td></tr></table></div>
+
+  <h3>T1.5 · Make the CLI a reliable interface</h3>
+  <p>Keep <code>inspect &lt;entry&gt; [more entries]</code> and <code>serve &lt;entry&gt;</code>. An inspect run writes valid <code>dist/graph.json</code> only after the graph succeeds; an invalid invocation returns a nonzero status with a clear message. Separate pure graph logic from CLI side effects to make the interface testable. The code plan must decide whether to write atomically via a temporary file and rename, and explain its failure behavior.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>L1</td><td>Valid single and multiple entries</td><td>Exit 0; parseable JSON file; printed count matches unique modules.</td></tr>
+    <tr><td>L2</td><td>No args, unknown command, missing entry, parse failure</td><td>Exit nonzero; useful diagnostic; no newly written partial JSON.</td></tr>
+    <tr><td>L3</td><td>Run from the documented project root</td><td>README commands work without manual flags or unstated setup beyond the documented Node requirement.</td></tr></table></div>
+
+  <h3>T1.6 · Serve and observe the demo honestly</h3>
+  <p>Keep the server bound to localhost. Serve the demo and <code>/__graph</code> with correct content types and no-store behavior; restrict the files exposed by the demo server to the documented public paths and reject path traversal, including encoded paths and escaping symlinks. Make the request handler testable without opening a port where possible. In the browser, render path and timing text safely, distinguish graph facts from resource observations, and handle zero or unavailable transfer size without inventing a byte count.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>S1</td><td>Request demo HTML, JS, CSS, and <code>/__graph</code></td><td>200 status, expected MIME type/body, valid graph JSON, and no-store where specified.</td></tr>
+    <tr><td>S2</td><td>Missing file, encoded traversal, symlink escape, unrelated private project file</td><td>404 or 403 as documented; no file bytes exposed; no uncaught server crash.</td></tr>
+    <tr><td>B1</td><td>Fresh browser load, before click</td><td>Page greeting renders. Main, message, suffix, CSS, and inspector requests are visible; <code>feature.js</code> is absent. Static JS rows show valid inclusion chains.</td></tr>
+    <tr><td>B2</td><td>Click the feature button once</td><td>Message changes and <code>feature.js</code> appears in DevTools Network and the observer table; it is marked outside the Task 1 static graph.</td></tr>
+    <tr><td>B3</td><td>CSS and unavailable transfer size</td><td>CSS says it comes from the HTML link (not a parsed CSS graph); unavailable size is labelled unavailable, not asserted as a real zero-byte transfer.</td></tr>
+    <tr><td>B4</td><td>Open the page without <code>PerformanceObserver</code> support or with graph fetch failure, if simulated</td><td>Clear fallback/error state; core demo remains usable; no misleading blank success table.</td></tr></table></div>
+  <p class="muted">Browser tests should use a real browser automation tool chosen and pinned in the code plan, or a clearly recorded manual verification with a Network screenshot/trace. Unit tests cannot prove a browser request occurred. This workspace previously returned <code>EPERM</code> while binding <code>127.0.0.1:4173</code>; distinguish that environment failure from an application failure.</p>
+
+  <h3>T1.7 · Documentation and final evidence</h3>
+  <p>Update README and the architecture note to accurately reflect Task 1's status, supported syntax, JSON fields, limitations, and exact run commands. Describe how to inspect Network before and after a click. Do not advertise a real bundle or a performance gain.</p>
+  <div class="scroll"><table><tr><th>Test ID</th><th>Scenario</th><th>Must pass</th></tr>
+    <tr><td>D1</td><td>Follow README on a clean checkout with the declared Node version</td><td>Tests and inspect command run; demo starts where port binding is permitted.</td></tr>
+    <tr><td>D2</td><td>Compare docs with implementation and test report</td><td>No claim of dynamic graph, bundled output, CSS graph, TypeScript input, or completed browser verification unless actually demonstrated.</td></tr>
+    <tr><td>D3</td><td>Review final test report</td><td>Each C/R/G/E/L/S/B/D ID has pass, fail, or blocked status and evidence; no test is silently omitted.</td></tr></table></div>
+
+  <h2>4. Mandatory second artifact: the code implementation plan</h2>
+  <div class="card success"><strong>Agent instruction:</strong> After reading this brief and auditing the repository, create <code>docs/task-1-code-implementation-plan.html</code> as a distinct artifact <em>before editing application code</em>. This brief says <em>what must be achieved</em>; the code plan must say <em>exactly how each file will achieve it</em>. Then implement the approved scope and keep the code plan accurate if a justified design change is made. The code plan is part of Task 1's deliverables.</div>
+  <p>The code implementation plan must contain all of the following:</p>
+  <ol>
+    <li><strong>Repository audit:</strong> actual current behavior, gaps versus this brief, Node/runtime constraints, dependencies already present, and decisions needed. Correct any mistaken assumptions from this brief using code evidence.</li>
+    <li><strong>Design contracts:</strong> precise graph schema and example JSON; path normalization and symlink policy; static import semantics; tie-breaking for inclusion paths; CLI errors and exit codes; HTTP routes and error states; browser observation versus inference.</li>
+    <li><strong>File-by-file matrix:</strong> every file to add or modify, its current responsibility, exact proposed functions/types/exports, algorithm or request flow, inputs and outputs, effect on other files, corresponding test IDs, and migration or compatibility concern. Include <code>package.json</code>, tests, fixtures, docs, and demo files when touched.</li>
+    <li><strong>Concrete code walkthrough:</strong> meaningful, syntactically plausible snippets for resolution/root checks, graph traversal, explanation paths, CLI error handling, server request routing, and browser rendering. Explain why each snippet exists and where it goes. Avoid vague placeholders such as “handle errors here.” Snippets are proposed code; final implementation may differ with an explained reason.</li>
+    <li><strong>Execution order:</strong> small changes in dependency order, with the test IDs run after each change. Identify any risky migration and how to recover if a test fails.</li>
+    <li><strong>Test implementation map:</strong> each ID above mapped to a test file, fixture, command, expected result, and whether it is automated or browser manual. Include a complete final command list and a browser verification checklist.</li>
+    <li><strong>Exit report format:</strong> final files changed, behavior changed, every test ID's result, actual commands and output summary, browser evidence, remaining limitations, and a truthful statement of whether Task 1 passed.</li>
+  </ol>
+  <p>For each file, the code plan should use a record like this:</p>
+  <pre><code>File: src/graph.mjs (modify)
+Current behavior: lexical root check, static graph, shortest path.
+Proposed change: resolve real paths before accepting an import;
+  keep project-relative IDs; document in-root symlink behavior.
+Functions/contracts: resolveImport(importer, specifier, root) -&gt; canonical file/ID.
+Impact: module identity in graph JSON and inclusion paths; no output schema rename.
+Tests: R1, R4, R5, G3, E3.
+Code excerpt: [actual proposed function or focused excerpt with explanation].</code></pre>
+  <p>The agent should state the exact dependencies and versions it proposes, with a reason. Do not add a parser, bundler, test runner, or browser package just because it exists; first verify that the new package is necessary for Task 1. A browser automation dependency may be justified for B1–B4. It must never treat skipped or blocked tests as passed.</p>
+
+  <h2>5. Copyable coding-agent instruction</h2>
+  <pre><code>You are completing Module Atlas Task 1. Read docs/architecture.html,
+docs/task-1-agent-implementation-brief.html, README.md, and the current source/tests.
+Preserve Task 1 scope: a static local ESM graph, deterministic JSON explanation,
+CLI, and an honest browser observation demo. Do not build Task 2 dynamic graph
+or a production bundle.
+
+First audit the code and create docs/task-1-code-implementation-plan.html.
+For every proposed file change, give its current role, exact changes, APIs,
+impact on other files, focused code snippets with explanation, and mapped
+test IDs. Define the graph schema, resolution policy, error behavior, and
+test implementation. Distinguish existing code from proposed code.
+
+Then implement that plan in small steps. Run the relevant tests after each
+subtask and the entire suite at the end. Verify the browser with a real
+browser where permitted. Record every C/R/G/E/L/S/B/D test ID as pass,
+fail, or blocked with evidence. Fix failures; never count blocked as pass.
+Update documentation to reflect what was actually built. Report the code
+plan, changed files, commands/results, remaining limits, and whether Task 1
+meets every gate. Do not claim a bundle, TypeScript input, or performance win.</code></pre>
+
+  <h2>6. Definition of done</h2>
+  <p>Task 1 is complete only if (1) the separate code implementation plan exists and matches the resulting code, (2) all applicable C/R/G/E/L/S/B/D checks pass with evidence, (3) the demo is verified in a real browser, (4) JSON and CLI behavior are reproducible on the documented Node version, and (5) the README and architecture accurately state the limits. If a check cannot run, report Task 1 as pending verification and identify the exact blocker.</p>
+  <p class="muted">Source of scope: <a href="architecture.html">Module Atlas architecture note</a>. This brief intentionally covers only its first iteration.</p>
+</main>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module Atlas Task 1 browser verification</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#192d3d}
+  table{border-collapse:collapse;width:100%}td,th{border:1px solid #c8d4df;padding:.45rem;text-align:left}
+  th{background:#eaf1f7}code{background:#edf2f6;padding:.1rem .25rem}h1,h2{line-height:1.2}
+</style>
+<main>
+  <h1>Task 1 browser verification record</h1>
+  <p><strong>Date:</strong> 5 October 2026. <strong>Browser:</strong> Codex in-app browser, Chromium user agent reporting Chrome/153.0.0.0 on macOS. <strong>URL:</strong> <code>http://127.0.0.1:4173/</code>. <strong>Runtime:</strong> Node v24.14.0, npm 11.9.0. The first sandboxed bind returned <code>EPERM</code>; the approved local bind then started the demo successfully.</p>
+  <p><strong>Evidence type:</strong> Real-browser accessibility snapshots of the rendered Resource Timing table and page state, captured during this task. The exact observed resource list is transcribed below. A separate DevTools Network screenshot or exported trace was not captured in the in-app browser. B2 therefore remains blocked on that independent evidence, even though the UI and Resource Timing showed the request after the click.</p>
+
+  <h2>B1 · Initial load — pass</h2>
+  <p>The page showed “Hello, developer. Open DevTools Network to compare the requests.” The inspector heading said “3 static modules; 5 observed resources.” <code>feature.js</code> was absent. The observed paths were:</p>
+  <table><tr><th>Request path</th><th>Rendered explanation</th></tr>
+    <tr><td>/examples/vanilla/style.css</td><td>HTML stylesheet link; outside JS graph</td></tr>
+    <tr><td>/examples/vanilla/main.js</td><td>Static inclusion: examples/vanilla/main.js</td></tr>
+    <tr><td>/src/browser-inspector.mjs</td><td>HTML module script; outside app graph</td></tr>
+    <tr><td>/examples/vanilla/message.js</td><td>Static inclusion: examples/vanilla/main.js → examples/vanilla/message.js</td></tr>
+    <tr><td>/examples/vanilla/suffix.js</td><td>Static inclusion: examples/vanilla/main.js → examples/vanilla/message.js → examples/vanilla/suffix.js</td></tr>
+  </table>
+
+  <h2>B2 · Click — blocked on DevTools capture</h2>
+  <p>After one click, the message became “The dynamic feature arrived after your click.” The inspector changed from five to six observed resources and added <code>/examples/vanilla/feature.js</code> with “Observed feature request; demo button contains a dynamic import; outside Task 1 static graph.” The new Resource Timing row had start time 8081.7 ms and transfer size 432 bytes in this run. The initial load had no feature row. This establishes the UI and observer portions of B2. On 5 October 2026, the user also reported that <code>feature.js</code> appeared in Chrome Network after the click and that it was working. This is a user-reported observation; the required independent DevTools Network screenshot or trace remains to be captured.</p>
+
+  <h2>B3 · CSS and unavailable size — pass</h2>
+  <p>The normal CSS row said “HTML stylesheet link; outside JS graph.” To exercise the zero/unavailable branch, a temporary local source override forced the size condition false. After reload, all size cells said “Unavailable (zero or missing; cache possible)”. The original inspector file was restored byte-for-byte afterward.</p>
+
+  <h2>B4 · Fallbacks — pass</h2>
+  <p>A temporary HTML override set <code>window.PerformanceObserver = undefined</code> before loading the inspector. The page showed “Live timing updates unavailable” and a “Refresh observations” button. Clicking the feature button still changed the message. After restoring the HTML, a temporary inspector override requested <code>/__graph-unavailable</code>. The page showed “Graph explanation unavailable: Graph request returned 404”, and the feature button still worked. Both original files were restored byte-for-byte, and a final reload showed the normal five-resource initial state.</p>
+
+  <h2>Remaining action for B2</h2>
+  <p>With <code>npm run demo</code> running, open <code>http://127.0.0.1:4173/</code> in a browser with DevTools Network. Enable Preserve log, reload, save a screenshot or trace showing the five initial JS/CSS resource requests and no <code>feature.js</code>, click the button once, then save the Network view showing <code>feature.js</code>. Record the browser version and evidence path here. Until then, Task 1 is pending verification.</p>
+</main>
+</html>

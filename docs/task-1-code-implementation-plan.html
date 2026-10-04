@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module Atlas · Task 1 code implementation plan · implemented</title>
+<style>
+  :root{font:16px/1.55 system-ui,sans-serif;color:#183047;background:#f4f7fb}
+  *{box-sizing:border-box}body{margin:0}main{max-width:1120px;margin:auto;padding:2.5rem 1.25rem 5rem}
+  h1,h2,h3{line-height:1.2}h1{font-size:2.5rem}h2{margin-top:2.7rem;border-top:1px solid #cbd9e5;padding-top:1.5rem}
+  p,li{max-width:95ch}table{border-collapse:collapse;width:100%;background:white;font-size:.91rem}
+  th,td{border:1px solid #cad8e5;padding:.55rem .65rem;text-align:left;vertical-align:top}
+  th{background:#e8f1f8}pre{overflow:auto;background:#142638;color:#f2f8ff;padding:1rem;border-radius:.5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}code{font-size:.9em}
+  .box{border:1px solid #cad8e5;border-radius:.6rem;background:white;padding:1rem 1.2rem}
+  .warning{background:#fff3dd}.scroll{overflow-x:auto}.muted{color:#52677a}
+  a{color:#075b8b}
+</style>
+<main>
+  <p class="muted">Approved plan · implemented 5 October 2026 · verification status recorded separately</p>
+  <h1>Task 1 code implementation plan</h1>
+  <p>This plan covers the static local ESM graph, deterministic JSON explanation, CLI, and native ESM browser observation demo. It does not include bundling, dynamic-import graph edges, CSS graph analysis, or Task 2. The user approved implementation; the resulting evidence is in <a href="task-1-implementation-report.html">the Task 1 implementation report</a>.</p>
+
+  <div class="box warning">
+    <strong>Confirmed source baseline.</strong> The user confirmed <code>/Users/asishkumar_1/Downloads/module-atlas-v0.1</code> as the intended prototype. The selected workspace, <code>/Users/asishkumar_1/work/bundler-application</code>, was empty at audit time. The ZIP contains all files at top level even though code, scripts, and documents refer to <code>src/</code>, <code>test/</code>, <code>examples/vanilla/</code>, and <code>docs/</code>. The supplied files were arranged under those expected paths before implementation.
+  </div>
+
+  <h2>0. What the documents ask us to build</h2>
+  <div class="scroll"><table>
+    <tr><th>Source</th><th>My understanding</th><th>Consequence for this plan</th></tr>
+    <tr><td>Architecture note</td><td>Module Atlas is intended to become a bundler with a causal record of why code is included and which requests the browser actually made. It lays out seven slices. Slice 1 is a static graph and native ESM demo; later slices add parsing with spans, real emitted ESM, TypeScript/JSX, CSS/assets, optimization, and a dev server.</td><td>Task 1 must explain the source graph honestly. It must not pretend to emit a bundle, optimize code, analyze dynamic imports, or measure a performance win. The architecture's “Complete” label for slice 1 is a status claim to correct after verification.</td></tr>
+    <tr><td>Task 1 implementation brief</td><td>Finish and verify that first slice. From local JavaScript entries, follow static relative imports and re-exports, produce a deterministic JSON graph with one shortest inclusion path per module, expose it through a CLI, and show browser resource observations beside those graph facts. Its C/R/G/E/L/S/B/D IDs are delivery gates.</td><td>The seven T1.1–T1.7 subtasks below follow the brief's order. Every subtask has its own files, code behavior, examples, tests, commands, and pass condition. Browser gates need a real browser; a unit test cannot substitute.</td></tr>
+    <tr><td>Confirmed prototype</td><td>The downloaded code already has a graph builder, CLI, browser inspector, native ESM sample, and four graph test groups. The archive was flattened, so scripts and imports fail. A direct call to its graph builder returns the expected sample chain. The graph and server also have concrete correctness and file-exposure gaps.</td><td>Restore layout first, preserve working behavior, then harden one dependency at a time. Reuse Node's parser for Task 1 and add only the tests and boundaries needed for the stated contract.</td></tr>
+    <tr><td>User's approval boundary</td><td>The user requested a complete, reviewable implementation plan before code work began and then approved implementation.</td><td>This HTML file records the pre-implementation plan; the separate implementation report records delivered code, checks, and remaining evidence.</td></tr>
+  </table></div>
+  <p><strong>How the implementation choices follow:</strong> a deterministic explanation requires canonical file IDs and stable edge/path order; canonical IDs require real-path resolution and a symlink policy; safe CLI output requires building the graph before writing; honest browser explanations require separating graph inclusion from Resource Timing; the browser demo requires a narrow HTTP file allowlist. Each choice maps to a gate in the brief rather than an extra bundler feature.</p>
+
+  <h3>Packages, runtime, and scripts</h3>
+  <div class="scroll"><table>
+    <tr><th>Category</th><th>Exact choice</th><th>Why</th></tr>
+    <tr><td>Third-party npm runtime packages</td><td><strong>None.</strong> <code>dependencies</code> remains absent or empty.</td><td>Node 24 already supplies the filesystem, path, VM parser, and HTTP APIs needed for Task 1.</td></tr>
+    <tr><td>Third-party npm development packages</td><td><strong>None.</strong> <code>devDependencies</code> remains absent or empty.</td><td><code>node:test</code> and <code>node:assert/strict</code> cover automated tests. The brief permits recorded manual real-browser verification, so no browser automation package is required for this slice.</td></tr>
+    <tr><td>Node runtime</td><td><code>engines.node: "&gt;=24.4.0"</code>; observed locally: Node <code>v24.14.0</code>, npm <code>11.9.0</code>.</td><td><code>SourceTextModule.moduleRequests</code> was added in Node 24.4.0; the VM API still needs <code>--experimental-vm-modules</code>. We will report the exact Node version used for final verification.</td></tr>
+    <tr><td>Built-in Node imports</td><td><code>node:fs/promises</code>, <code>node:path</code>, <code>node:url</code>, <code>node:vm</code>, <code>node:http</code>, <code>node:crypto</code>; tests additionally use <code>node:test</code>, <code>node:assert/strict</code>, <code>node:child_process</code>, and <code>node:os</code>.</td><td>These are bundled with Node; there is no package download, lockfile change, or parser replacement.</td></tr>
+    <tr><td>Browser APIs</td><td>Native ESM, <code>fetch</code>, <code>PerformanceObserver</code> when available, Resource Timing, and DOM APIs.</td><td>They give actual request observations without a browser-side npm dependency. The browser name/version and Network evidence will be recorded during verification.</td></tr>
+  </table></div>
+  <pre><code>{
+  "name": "module-atlas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "&gt;=24.4.0" },
+  "scripts": {
+    "test": "node --no-warnings --experimental-vm-modules --test",
+    "inspect": "node --no-warnings --experimental-vm-modules src/cli.mjs inspect examples/vanilla/main.js",
+    "demo": "node --no-warnings --experimental-vm-modules src/cli.mjs serve examples/vanilla/main.js"
+  }
+}</code></pre>
+  <p>This is the proposed <code>package.json</code> behavior after restoring the baseline directories. No <code>npm install</code> step is planned. The minimum Node version changes from the prototype's <code>&gt;=24</code> to <code>&gt;=24.4.0</code> for <code>moduleRequests</code>. If a real-browser check cannot be completed manually, that gate remains blocked; adding a pinned browser package would require a plan revision with an exact version and reason. See the <a href="https://nodejs.org/api/vm.html#sourcetextmodulemodulerequests">official Node VM API history</a>.</p>
+
+  <h3>How the pieces connect</h3>
+  <pre><code>npm run inspect
+  → src/cli.mjs main → runCli(["inspect", "examples/vanilla/main.js"])
+  → src/graph.mjs buildGraph(entries, root)
+       → resolveEntry → visit(entry)
+       → SourceTextModule → moduleRequests → supported specifiers
+       → resolveLocal(importer, specifier) → visit(target) recursively
+       → computeWhy(entries, nodes) → deterministic graph object
+  → writeGraphAtomically(graph, dist/graph.json) → CLI summary
+
+npm run demo
+  → same buildGraph → createRequestHandler({ root, graph })
+  → node:http listens on 127.0.0.1:4173
+  → GET / serves index.html
+       → HTML loads CSS, main.js, browser-inspector.mjs
+       → browser native ESM loads message.js and suffix.js
+       → inspector fetches /__graph and observes Resource Timing
+       → click causes import('./feature.js') and a new observed request</code></pre>
+  <p>The server does not make the browser load the static imports. The browser's native ESM loader does that from <code>main.js</code>. The graph builder predicts which local static files are reachable; the inspector matches their canonical IDs to the requests the browser recorded. A dynamic <code>feature.js</code> request can appear in the observation table while remaining absent from Task 1's static graph.</p>
+  <div class="scroll"><table>
+    <tr><th>Function / file</th><th>Called by → calls</th><th>Input → output</th></tr>
+    <tr><td><code>buildGraph</code> / <code>src/graph.mjs</code></td><td><code>runCli</code> → <code>resolveEntry</code>, <code>visit</code>, <code>computeWhy</code></td><td><code>(["examples/vanilla/main.js"], projectRoot)</code> → schema-v1 graph object with three static modules.</td></tr>
+    <tr><td><code>resolveEntry</code> / <code>src/graph.mjs</code></td><td><code>buildGraph</code> → <code>realpath</code>, root check</td><td>Entry argument → canonical real file plus project-relative ID, or contextual error.</td></tr>
+    <tr><td><code>resolveLocal</code> / <code>src/graph.mjs</code></td><td><code>visit</code> → candidate lookup, <code>realpath</code>, root check</td><td><code>(message.js, "./suffix.js")</code> → real <code>suffix.js</code>; <code>(main.js, "react")</code> → unsupported-import error.</td></tr>
+    <tr><td><code>visit</code> / <code>src/graph.mjs</code></td><td><code>buildGraph</code> or itself → Node VM parser, <code>resolveLocal</code></td><td>Canonical file → one node with UTF-8 bytes and static edges; recursive visits fill a map.</td></tr>
+    <tr><td><code>computeWhy</code> / <code>src/graph.mjs</code></td><td><code>buildGraph</code> → breadth-first queue</td><td>Entries and node map → one shortest ID array per module.</td></tr>
+    <tr><td><code>runCli</code> / <code>src/cli.mjs</code></td><td>Script entry → <code>buildGraph</code>, <code>writeGraphAtomically</code> or <code>startDemo</code></td><td>Command arguments → exit code 0, 1, or 2 and output/server effect.</td></tr>
+    <tr><td><code>routeRequest</code> / <code>src/server.mjs</code></td><td><code>createRequestHandler</code> → allowlist, filesystem read</td><td>URL and method → status, headers, body; no port required for unit tests.</td></tr>
+    <tr><td><code>initInspector</code>/<code>render</code> / <code>src/browser-inspector.mjs</code></td><td>HTML module script → <code>fetch</code>, Resource Timing, DOM text nodes</td><td>Graph plus observed entries → labelled resource table or explicit fallback/error.</td></tr>
+  </table></div>
+  <p><strong>Example observable result:</strong> before clicking, the static graph contains <code>main.js</code>, <code>message.js</code>, and <code>suffix.js</code>; the browser table also includes the CSS and inspector requests. After clicking, <code>feature.js</code> appears as an observed request with the label “outside Task 1 static graph.” Its absence from <code>dist/graph.json</code> is expected.</p>
+
+  <h2>1. Repository audit and issues</h2>
+  <p>The audit read the two supplied HTML documents and all files in the matching download. Node <code>v24.14.0</code> and npm <code>11.9.0</code> are available. <code>package.json</code> declares Node <code>&gt;=24</code> and no dependencies. No repository Git history or project instruction file was present in the selected workspace. The unrelated <code>Downloads/AGENTS.md</code> describes a Shopify app and supplies no Module Atlas behavior.</p>
+  <div class="scroll"><table>
+    <tr><th>Finding</th><th>Evidence</th><th>Effect on Task 1</th></tr>
+    <tr><td>Archive layout breaks the documented commands</td><td><code>npm test</code> fails resolving <code>../src/graph.mjs</code>; <code>npm run inspect</code> fails because <code>src/cli.mjs</code> does not exist.</td><td>Restore the intended directory layout before evaluating test or CLI success. This is a packaging defect, not proof that graph logic passed.</td></tr>
+    <tr><td>Graph logic works for the sample when called directly</td><td>Calling top-level <code>graph.mjs</code> with <code>main.js</code> produced three modules and the chain <code>main.js → message.js → suffix.js</code>.</td><td>Keep the existing schema unless a verified correctness issue requires a versioned change.</td></tr>
+    <tr><td>Architecture status conflicts with the brief</td><td>The architecture labels slice 1 “Complete”; the newer Task 1 brief says partially implemented and browser verification pending.</td><td>Use “pending verification” until all gates, including a real browser, pass. Update the architecture note after evidence exists.</td></tr>
+    <tr><td>Lexical path checks are insufficient</td><td><code>graph.mjs</code> calls <code>stat</code>/<code>readFile</code> through symlinks but checks only the apparent path.</td><td>An outside symlink can escape the graph root; two paths to one real file become duplicate nodes.</td></tr>
+    <tr><td>Server exposes arbitrary files below the root</td><td><code>cli.mjs</code> resolves any request path under the project and follows symlinks. It returns internal error text for unexpected failures.</td><td>Private project files and outside symlink targets may be served. Replace with an explicit public route map and bounded errors.</td></tr>
+    <tr><td>Parser and edge semantics need a contract</td><td>Node 24's <code>SourceTextModule.moduleRequests</code> is available; <code>dependencySpecifiers</code> is deprecated. A local Node 24.14 probe showed repeated identical imports collapsing to one request.</td><td>Use <code>moduleRequests</code>, explicitly retain one edge per unique specifier in first-occurrence order, and reject unsupported import attributes/phases. Test that policy instead of relying on incidental VM deduplication.</td></tr>
+    <tr><td>Resolution accepts more than the stated input contract</td><td>The current candidate order includes an extensionless file before <code>.js</code>/<code>.mjs</code>, and may parse an unsupported extension as JavaScript.</td><td>Specify exact extension/index precedence and reject unsupported input extensions rather than suggesting they were analyzed.</td></tr>
+    <tr><td>Output and errors are not fully reliable</td><td><code>inspect</code> writes directly to <code>dist/graph.json</code>; a missing entry produces a raw filesystem error; sort uses locale-sensitive <code>localeCompare</code>.</td><td>Use deterministic ordinal sorting, contextual diagnostics, and atomic report replacement. Never count an old report as output from a failed run.</td></tr>
+    <tr><td>Browser observation has incomplete failure states</td><td>A failed graph fetch or absent <code>PerformanceObserver</code> rejects at module top level. Zero transfer size is shown as <code>0 / unavailable</code>. All non-graph JS is given the same label.</td><td>Show a clear error or fallback, keep the demo button usable, and distinguish HTML-loaded inspector, CSS link, and lazy JS from graph facts.</td></tr>
+    <tr><td>Existing four tests do not establish Task 1 completion</td><td>Only graph behavior has unit tests; no CLI, server, or real-browser evidence is present in the archive.</td><td>Implement the full C/R/G/E/L/S/B/D gate map below. Blocked browser gates remain blocked, never passed.</td></tr>
+  </table></div>
+
+  <h2>2. Decisions and precise contracts</h2>
+  <h3>Inputs and identity</h3>
+  <ul>
+    <li>Use Node 24 or newer with <code>--experimental-vm-modules</code>. Accept one or more existing local <code>.js</code>/<code>.mjs</code> entries and relative static <code>import</code>/<code>export ... from</code> dependencies. Side-effect imports count. Dynamic <code>import()</code> is omitted from this graph even when literal; the demo labels its request outside the static graph.</li>
+    <li>Reject bare, absolute, query/hash, and unsupported extension specifiers with the importer and exact specifier in the diagnostic. Resolve <code>./util</code> in this order: <code>util.js</code>, <code>util.mjs</code>, <code>util/index.js</code>, <code>util/index.mjs</code>. Explicit <code>.js</code>/<code>.mjs</code> specifiers resolve exactly. Directory imports resolve only through those index candidates. Valid <code>../</code> imports are accepted when the final real file stays inside the real project root.</li>
+    <li>Canonical identity is the resolved real file path, converted to a project-relative forward-slash ID after checking containment within the root's real path. In-root symlink aliases collapse to one node and use the target's ID. An outside symlink is rejected. <code>entries</code> preserves argument order, including duplicate canonical IDs when two entry arguments name the same file; <code>modules</code> contains that file once.</li>
+    <li>One import edge is emitted per unique specifier in the order of its first static occurrence in source. Edges retain the original specifier and canonical target. Use <code>SourceTextModule.moduleRequests</code> and an explicit seen-specifier set; reject import attributes or phases beyond ordinary JS evaluation because Task 1 does not model them. Node 24.14 currently collapses identical requests, but the explicit set preserves our schema policy if VM behavior changes. Strings/comments do not create edges. Unsupported syntax that Node cannot parse fails with the source ID.</li>
+    <li>After following an in-root symlink, the real target must itself end in <code>.js</code> or <code>.mjs</code>. A <code>.js</code> alias to <code>data.txt</code> is rejected with importer/specifier context. The fixed demo server rejects symlinked public files, so browser URL matching is promised only for the shipped, no-symlink vanilla demo; <code>inspect</code> may still canonicalize in-root symlinks.</li>
+  </ul>
+  <h3>Graph report</h3>
+  <p>Keep <code>schemaVersion: 1</code>, <code>root: "."</code>, <code>entries</code>, <code>modules</code>, and <code>why</code>. Each module has <code>id</code>, UTF-8 <code>bytes</code>, and <code>imports</code> with <code>specifier</code>/<code>target</code>. Sort modules and <code>why</code> keys by Unicode code-unit order, without locale dependence. Breadth-first search over entries in declared order and edges in first-occurrence order chooses one shortest path. <code>why</code> is an inclusion explanation, not execution order, request initiator, or the only path. JSON contains no absolute paths, timestamps, or machine-specific data.</p>
+  <pre><code>{
+  "schemaVersion": 1,
+  "root": ".",
+  "entries": ["examples/vanilla/main.js"],
+  "modules": [
+    {"id":"examples/vanilla/main.js","bytes":267,"imports":[{"specifier":"./message.js","target":"examples/vanilla/message.js"}]},
+    {"id":"examples/vanilla/message.js","bytes":107,"imports":[{"specifier":"./suffix.js","target":"examples/vanilla/suffix.js"}]},
+    {"id":"examples/vanilla/suffix.js","bytes":74,"imports":[]}
+  ],
+  "why": {
+    "examples/vanilla/main.js":["examples/vanilla/main.js"],
+    "examples/vanilla/message.js":["examples/vanilla/main.js","examples/vanilla/message.js"],
+    "examples/vanilla/suffix.js":["examples/vanilla/main.js","examples/vanilla/message.js","examples/vanilla/suffix.js"]
+  }
+}</code></pre>
+  <p>The byte values above are from the provided sample files after layout restoration, assuming their content is unchanged. This is the fixture example for C1; tests should compare the full report, including a trailing newline when written by the CLI.</p>
+  <h3>CLI, HTTP, and observation</h3>
+  <ul>
+    <li><code>inspect &lt;entry&gt; [more entries]</code> accepts arbitrary supported local entries. <code>serve &lt;entry&gt;</code> accepts only the documented <code>examples/vanilla/main.js</code>, since its HTTP allowlist and HTML always run that fixed demo. Another serve entry is a usage error (exit 2), rather than a misleading graph about a different app. Graph, filesystem, and server startup failures exit 1; success exits 0. Diagnostics go to stderr and are command-specific. Build the entire graph before creating a new report. Write to a unique temporary file in <code>dist/</code>, then rename it over <code>graph.json</code>. On inspect failure, an earlier report may remain and must be identified as stale. No partial report is presented as current.</li>
+    <li>The server binds <code>127.0.0.1:4173</code> and serves only <code>/</code> (demo HTML), <code>/__graph</code>, <code>/src/browser-inspector.mjs</code>, and five demo asset routes under <code>/examples/vanilla/</code> (main, message, suffix, feature, CSS). Only GET/HEAD are allowed. Successful responses have appropriate MIME type and <code>Cache-Control: no-store</code>. Unknown paths return 404, malformed paths 400, and symlink escape or non-public file attempts return 403/404 without file bytes. <code>/__graph</code> serves the graph built at startup; restart the demo after source changes.</li>
+    <li>The browser table uses Resource Timing entries as observations. Static JS rows show the graph's inclusion chain. CSS identifies the HTML stylesheet link, inspector JS identifies the HTML script tag, and <code>feature.js</code> says “Observed feature request; demo button contains a dynamic import; outside Task 1 static graph.” The URL alone does not establish that a click happened; B1/B2 establish before/after separately. URL-to-ID matching covers the shipped no-symlink demo only. A zero or missing <code>transferSize</code> displays “unavailable (zero or missing; cache possible)”. Browser API absence and graph fetch failure show explicit fallback/error text. DOM text uses <code>textContent</code> only.</li>
+  </ul>
+
+  <h2>3. File-by-file change matrix</h2>
+  <p>After approval, first place the flattened baseline under these paths. “Move” below means arranging the supplied files without changing their contents; later rows describe code changes. The brief itself is copied into <code>docs/</code> so its references work. No source is sent to an external service.</p>
+  <div class="scroll"><table>
+    <tr><th>File and current role</th><th>Exact proposed change, API, and impact</th><th>Tests / compatibility</th></tr>
+    <tr><td><code>package.json</code> · scripts and Node engine</td><td>Set Node <code>&gt;=24.4.0</code> for <code>moduleRequests</code> and keep zero runtime/development dependencies. Keep <code>inspect</code>, <code>demo</code>, <code>test</code> scripts pointing to restored paths. No parser, bundler, test-runner, or browser package is added.</td><td>L3, D1. Script names stay compatible; minimum Node version rises from the prototype.</td></tr>
+    <tr><td><code>src/graph.mjs</code> · current graph builder</td><td>Keep exported <code>buildGraph(entryPaths, root)</code>. Add focused <code>resolveEntry</code>, <code>resolveLocal</code>, <code>assertWithinRoot</code>, and <code>idOf</code> helpers using <code>realpath</code>. Parse each canonical module once; keep source-order unique edges; use queue-based shortest paths; ordinal sort and stable <code>why</code> keys. Preserve schema v1.</td><td>C1–C3, R1–R5, G1–G5, E1–E3. Canonical IDs for symlink aliases may change from the prototype; intentional correctness fix.</td></tr>
+    <tr><td><code>src/cli.mjs</code> · command entry point and server</td><td>Keep command syntax. Export testable <code>runCli(argv, options)</code>; invoke it only when executed as a script. <code>inspect</code> accepts supported local entries; <code>serve</code> accepts only the fixed vanilla entry. Build graph before side effects; atomically write inspect output; start localhost server using <code>createRequestHandler</code>. Use command-specific errors and retain a listener for later server errors.</td><td>L1–L3, S1. Existing npm commands remain; non-demo serve entry becomes an explicit usage error.</td></tr>
+    <tr><td><code>src/server.mjs</code> · new HTTP routing module</td><td>Export <code>routeRequest(rawUrl, method, context)</code> returning status, headers, body, and <code>createRequestHandler(context)</code> adapting it to Node HTTP. Use exact route allowlist, URL decoding and traversal rejection, realpath validation, no-store, and bounded errors.</td><td>S1–S2, B1–B4. Separates server tests from port binding.</td></tr>
+    <tr><td><code>src/browser-inspector.mjs</code> · browser table</td><td>Keep graph fetch and Resource Timing view, but check fetch status and schema, catch failure, feature-detect <code>PerformanceObserver</code>, provide manual refresh fallback, format unavailable timing safely, and render all text with DOM text nodes. Distinguish each evidence source and avoid claiming a click from a URL. Match IDs only for the fixed no-symlink demo.</td><td>B1–B4. No external browser package or general URL-alias matching.</td></tr>
+    <tr><td><code>examples/vanilla/index.html</code> · demo entry</td><td>Restore path; give the observation panel a visible loading state and accessible status text. Keep the native ESM scripts, stylesheet, greeting, and feature button.</td><td>B1–B4. No bundling or CSS graph.</td></tr>
+    <tr><td><code>examples/vanilla/main.js</code>, <code>message.js</code>, <code>suffix.js</code>, <code>feature.js</code>, <code>style.css</code> · sample app</td><td>Move without behavior changes. Only adjust wording or styling if browser checks reveal a concrete issue. These five asset routes, the demo HTML, and the inspector route form the server public allowlist.</td><td>C1, S1, B1–B3. Native ESM remains.</td></tr>
+    <tr><td><code>test/fixtures/chain/main.js</code>, <code>message.js</code>, <code>suffix.js</code>; <code>test/fixtures/diamond/main.js</code>, <code>left.js</code>, <code>right.js</code>, <code>shared.js</code>; <code>test/fixtures/cycle/a.js</code>, <code>b.js</code>; <code>test/fixtures/two-entries/a.js</code>, <code>b.js</code>, <code>shared.js</code>; <code>test/fixtures/syntax/invalid.js</code>, <code>strings-comments.js</code>, <code>reexports.js</code>, <code>side-effect.js</code>, <code>repeated.js</code>, <code>dynamic.js</code>; <code>test/fixtures/resolution/util.js</code>, <code>util.mjs</code>, <code>nested/index.js</code>, <code>shared.js</code> · new reusable fixtures</td><td>Add small named fixtures for exact snapshots and parsing behavior. Build special symlink and outside-root fixtures at test runtime in a temporary directory. Do not rely on symlink preservation in ZIP files.</td><td>C1–C3, R1–R5, G1–G5, E1–E3. Fixture content is static and reviewable.</td></tr>
+    <tr><td><code>test/graph.test.mjs</code> · four current tests</td><td>Move and retain the existing coverage, then focus this file on static import and traversal scenarios. Use <code>node:test</code> and <code>node:assert/strict</code>.</td><td>G1–G5. Tests assert observable graph output.</td></tr>
+    <tr><td><code>test/contract.test.mjs</code>, <code>test/resolution.test.mjs</code>, <code>test/explanations.test.mjs</code> · new focused tests</td><td>Separate the exact schema/process determinism and unsupported-scope checks (C), real-path resolution and symlink checks (R), and shortest-path/byte/order checks (E). Share only fixture setup helpers; avoid tests that duplicate the implementation algorithm.</td><td>C1–C3, R1–R5, E1–E3. Each subtask has an independently runnable file.</td></tr>
+    <tr><td><code>test/cli.test.mjs</code> · new CLI tests</td><td>Use temporary project roots through <code>runCli</code> for output/failure behavior; spawn the actual script for exit-code and fresh-process determinism checks. Check no new/partial JSON after failures.</td><td>C2, L1–L3. No network required.</td></tr>
+    <tr><td><code>test/server.test.mjs</code> · new request tests</td><td>Call <code>routeRequest</code> without binding a port; assert route bodies, headers, status, encoded traversal, symlinks, and private-file denial. Add one localhost smoke request only where binding is permitted, recorded separately.</td><td>S1–S2. Pure route tests remain runnable in a restricted workspace.</td></tr>
+    <tr><td><code>test/browser-verification.html</code> · new verification record</td><td>Record browser name/version, Node version, exact commands, fresh-profile/cache conditions, Network screenshot or trace paths, B1–B4 observations, and blocked reasons if necessary.</td><td>B1–B4, D3. Manual browser verification is the selected method; no browser dependency is proposed.</td></tr>
+    <tr><td><code>README.md</code> · public instructions</td><td>Repair run commands; document syntax, schema, symlink and duplicate-edge behavior, the fixed-demo-only serve contract, no-symlink browser matching, static-versus-observed distinction, DevTools steps, status, and unsupported features.</td><td>D1–D2, L3. Do not claim browser verification until it happens.</td></tr>
+    <tr><td><code>docs/architecture.html</code> · architecture and milestones</td><td>Move the supplied note and change slice 1 status to match final evidence; keep later slices as future work. Correct any command or schema description affected by implementation.</td><td>D2. Avoid claiming a bundled app or performance win.</td></tr>
+    <tr><td><code>docs/task-1-agent-implementation-brief.html</code> · supplied requirements</td><td>Copy unchanged for traceability. Any conflict or superseded assumption is recorded in this plan and final report, not silently edited into the brief.</td><td>D2–D3. No application behavior change.</td></tr>
+    <tr><td><code>docs/task-1-code-implementation-plan.html</code> · this plan</td><td>Keep this separate artifact accurate when a justified design change is approved; record the change and rationale before implementation diverges.</td><td>Definition of done. This is the only file created during the planning phase.</td></tr>
+  </table></div>
+  <p class="muted">In the fixture row, filenames after the first name in a group share that group's directory. Generated <code>dist/graph.json</code> is output, not a source file.</p>
+
+  <h2>4. Concrete code walkthrough</h2>
+  <p>The snippets below show proposed logic and its home. They are illustrative, syntactically plausible Node ESM, and may be refined after focused tests. Any material change will be recorded in this plan.</p>
+  <h3>Native ESM sample wiring · <code>examples/vanilla/</code></h3>
+  <p>The sample JavaScript below already exists in the supplied prototype and is moved into the intended directory without changing its import behavior. The HTML link and inspector script are separate browser loads. They are visible to Resource Timing but are not dependencies of <code>main.js</code> in the Task 1 graph.</p>
+  <pre><code>&lt;!-- examples/vanilla/index.html --&gt;
+&lt;link rel="stylesheet" href="/examples/vanilla/style.css"&gt;
+&lt;script type="module" src="/examples/vanilla/main.js"&gt;&lt;/script&gt;
+&lt;script type="module" src="/src/browser-inspector.mjs"&gt;&lt;/script&gt;
+
+// examples/vanilla/main.js
+import { greeting } from './message.js';
+document.querySelector('#message').textContent = greeting('developer');
+document.querySelector('#load-more').addEventListener('click', async () => {
+  const { loadFeature } = await import('./feature.js');
+  loadFeature();
+});
+
+// examples/vanilla/message.js
+import { suffix } from './suffix.js';
+export function greeting(name) { return 'Hello, ' + name + suffix; }
+
+// examples/vanilla/suffix.js
+export const suffix = '. Open DevTools Network to compare the requests.';
+
+// examples/vanilla/feature.js
+export function loadFeature() {
+  document.querySelector('#message').textContent = 'The dynamic feature arrived after your click.';
+}</code></pre>
+  <p><strong>Input/output:</strong> loading <code>/</code> calls <code>greeting("developer")</code>, which returns the greeting plus <code>suffix</code>; the browser requests <code>main.js</code>, <code>message.js</code>, and <code>suffix.js</code>. Clicking the button calls <code>loadFeature()</code> only after native <code>import("./feature.js")</code> finishes, so <code>feature.js</code> is requested later. The inspector compares those observed requests with the static graph returned by <code>/__graph</code>.</p>
+  <h3>Resolution and root containment · <code>src/graph.mjs</code></h3>
+  <pre><code>import { realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+async function createResolver(root) {
+  const rootReal = await realpath(root);
+  function assertWithinRoot(realFile, context) {
+    const rel = path.relative(rootReal, realFile);
+    if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) {
+      throw new Error(context + ' escapes the project root: ' + realFile);
+    }
+  }
+  function idOf(realFile) {
+    return path.relative(rootReal, realFile).split(path.sep).join('/');
+  }
+  async function resolveEntry(entry) {
+    const extension = path.extname(entry);
+    if (extension !== '.js' &amp;&amp; extension !== '.mjs') {
+      throw new Error('Entry must be .js or .mjs: ' + JSON.stringify(entry));
+    }
+    const requested = path.resolve(rootReal, entry);
+    let realFile;
+    try { realFile = await realpath(requested); }
+    catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+        throw new Error('Cannot resolve entry ' + JSON.stringify(entry), { cause: error });
+      }
+      throw new Error('Cannot access entry ' + JSON.stringify(entry) + ': ' + error.message,
+        { cause: error });
+    }
+    assertWithinRoot(realFile, 'Entry ' + JSON.stringify(entry));
+    if (!['.js', '.mjs'].includes(path.extname(realFile))) {
+      throw new Error('Entry resolves to non-JS file: ' + JSON.stringify(entry));
+    }
+    try {
+      if (!(await stat(realFile)).isFile()) {
+        throw new Error('Entry is not a file: ' + JSON.stringify(entry));
+      }
+    } catch (error) {
+      if (error.code) throw new Error('Cannot access entry ' + JSON.stringify(entry) +
+        ': ' + error.message, { cause: error });
+      throw error;
+    }
+    return realFile;
+  }
+  async function resolveLocal(importerReal, specifier) {
+    if (!specifier.startsWith('./') &amp;&amp; !specifier.startsWith('../')) {
+      throw new Error('Unsupported import ' + JSON.stringify(specifier) + ' in ' + idOf(importerReal));
+    }
+    if (specifier.includes('?') || specifier.includes('#')) {
+      throw new Error('Unsupported query/hash import ' + JSON.stringify(specifier) + ' in ' + idOf(importerReal));
+    }
+    const base = path.resolve(path.dirname(importerReal), specifier);
+    const ext = path.extname(base);
+    if (ext &amp;&amp; ext !== '.js' &amp;&amp; ext !== '.mjs') {
+      throw new Error('Unsupported module extension ' + JSON.stringify(specifier) +
+        ' in ' + idOf(importerReal));
+    }
+    const candidates = ext ? [base] : [base + '.js', base + '.mjs',
+      path.join(base, 'index.js'), path.join(base, 'index.mjs')];
+    for (const candidate of candidates) {
+      try {
+        if (!(await stat(candidate)).isFile()) continue;
+        const realFile = await realpath(candidate);
+        assertWithinRoot(realFile, 'Import ' + JSON.stringify(specifier) +
+          ' from ' + idOf(importerReal));
+        if (!['.js', '.mjs'].includes(path.extname(realFile))) {
+          throw new Error('Import ' + JSON.stringify(specifier) + ' from ' +
+            idOf(importerReal) + ' resolves to a non-JS file');
+        }
+        return realFile;
+      } catch (error) {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
+        if (error.code) throw new Error('Cannot access ' + JSON.stringify(specifier) +
+          ' from ' + idOf(importerReal) + ': ' + error.message, { cause: error });
+        throw error;
+      }
+    }
+    throw new Error('Cannot resolve ' + JSON.stringify(specifier) + ' from ' + idOf(importerReal));
+  }
+  return { rootReal, idOf, resolveEntry, resolveLocal };
+}</code></pre>
+  <p><strong>Input/output examples:</strong> with root <code>/project</code>, <code>resolveLocal("/project/src/main.js", "../shared.js")</code> returns the real <code>/project/shared.js</code>. If <code>/project/src/alias.js</code> points to <code>/project/shared.js</code>, both resolve to ID <code>shared.js</code>. An outside target throws with importer/specifier context; <code>alias.js</code> pointing to <code>data.txt</code> is rejected as non-JS. Missing and unreadable entries get different errors with preserved causes. Absolute paths can appear in local error diagnostics, but never in graph JSON.</p>
+  <h3>Traversal and shortest explanations · <code>src/graph.mjs</code></h3>
+  <pre><code>import { readFile } from 'node:fs/promises';
+import { SourceTextModule } from 'node:vm';
+
+function computeWhy(entries, nodes) {
+  const found = new Map();
+  const queue = entries.map(id => ({ id, chain: [id] }));
+  for (let head = 0; head &lt; queue.length; head++) {
+    const { id, chain } = queue[head];
+    if (found.has(id)) continue;
+    found.set(id, chain);
+    for (const edge of nodes.get(id).imports) {
+      queue.push({ id: edge.target, chain: [...chain, edge.target] });
+    }
+  }
+  return found;
+}
+
+export async function buildGraph(entryPaths, root = process.cwd()) {
+  if (!Array.isArray(entryPaths) || entryPaths.length === 0) {
+    throw new Error('At least one entry is required');
+  }
+  const { idOf, resolveEntry, resolveLocal } = await createResolver(root);
+  const nodes = new Map();
+  async function visit(realFile) {
+    const id = idOf(realFile);
+    if (nodes.has(id)) return;
+    const source = await readFile(realFile, 'utf8');
+    let parsed;
+    try { parsed = new SourceTextModule(source, { identifier: id }); }
+    catch (error) { throw new Error('Cannot parse ' + id + ': ' + error.message, { cause: error }); }
+    const node = { id, bytes: Buffer.byteLength(source, 'utf8'), imports: [] };
+    nodes.set(id, node);
+    const seenSpecifiers = new Set();
+    for (const request of parsed.moduleRequests) {
+      if (request.phase !== 'evaluation' || Object.keys(request.attributes).length) {
+        throw new Error('Unsupported import attributes or phase ' +
+          JSON.stringify(request.specifier) + ' in ' + id);
+      }
+      const specifier = request.specifier;
+      if (seenSpecifiers.has(specifier)) continue;
+      seenSpecifiers.add(specifier);
+      const targetReal = await resolveLocal(realFile, specifier);
+      node.imports.push({ specifier, target: idOf(targetReal) });
+      await visit(targetReal);
+    }
+  }
+  const entries = [];
+  for (const entryPath of entryPaths) {
+    const realFile = await resolveEntry(entryPath);
+    entries.push(idOf(realFile));
+    await visit(realFile);
+  }
+  const paths = computeWhy(entries, nodes);
+  const ordinal = (a, b) => a &lt; b ? -1 : a &gt; b ? 1 : 0;
+  const modules = [...nodes.values()].sort((a, b) => ordinal(a.id, b.id));
+  const why = Object.fromEntries(modules.map(module => [module.id, paths.get(module.id)]));
+  return { schemaVersion: 1, root: '.', entries, modules, why };
+}</code></pre>
+  <p><strong>Input/output examples:</strong> <code>buildGraph(["examples/vanilla/main.js"], root)</code> returns the schema-v1 object shown above; <code>feature.js</code> is absent because <code>import()</code> is not a static dependency. For a diamond where <code>a.js</code> imports <code>left.js</code> before <code>right.js</code> and both import <code>shared.js</code>, <code>why["shared.js"]</code> is <code>["a.js","left.js","shared.js"]</code>. Marking the node before recursion ends cycles. Breadth-first queue order gives shortest paths and tie order; sorting only affects serialization.</p>
+  <h3>CLI errors and atomic report · <code>src/cli.mjs</code></h3>
+  <pre><code>import { createServer } from 'node:http';
+import { mkdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { buildGraph } from './graph.mjs';
+import { createRequestHandler } from './server.mjs';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+async function writeGraphAtomically(graph, root) {
+  const dir = path.join(root, 'dist');
+  await mkdir(dir, { recursive: true });
+  const temporary = path.join(dir, '.graph-' + randomUUID() + '.tmp');
+  try {
+    await writeFile(temporary, JSON.stringify(graph, null, 2) + '\n', { flag: 'wx' });
+    await rename(temporary, path.join(dir, 'graph.json'));
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+async function startDemo(graph, root, stdout, stderr) {
+  const rootReal = await realpath(root);
+  const server = createServer(createRequestHandler({ rootReal, graph }));
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(4173, '127.0.0.1', () => {
+      server.off('error', reject);
+      server.on('error', error => {
+        stderr.write('Demo server error: ' + error.message + '\n');
+        process.exitCode = 1;
+        server.close();
+      });
+      resolve();
+    });
+  });
+  stdout.write('Demo: http://127.0.0.1:4173/\n');
+  return 0;
+}
+export async function runCli(argv, options = {}) {
+  const { root = projectRoot, stdout = process.stdout, stderr = process.stderr } = options;
+  const [command, ...entries] = argv;
+  if (!['inspect', 'serve'].includes(command) || entries.length === 0 ||
+      (command === 'serve' &amp;&amp; entries.length !== 1)) {
+    stderr.write('Usage: ... &lt;inspect|serve&gt; &lt;entry.js&gt; [more entries...]\n');
+    return 2;
+  }
+  if (command === 'serve' &amp;&amp; entries[0] !== 'examples/vanilla/main.js') {
+    stderr.write('serve supports only examples/vanilla/main.js in Task 1\n');
+    return 2;
+  }
+  try {
+    const graph = await buildGraph(entries, root);
+    if (command === 'serve') return await startDemo(graph, root, stdout, stderr);
+    await writeGraphAtomically(graph, root);
+    stdout.write('Found ' + graph.modules.length + ' modules; wrote dist/graph.json\n');
+    for (const module of graph.modules) {
+      stdout.write(module.id + ' &lt;- ' + graph.why[module.id].join(' -&gt; ') + '\n');
+    }
+    return 0;
+  } catch (error) {
+    const reportNote = command === 'inspect'
+      ? ' Existing graph.json, if any, was not updated.'
+      : '';
+    stderr.write('Task 1 ' + command + ' failed: ' + error.message + '.' + reportNote + '\n');
+    return 1;
+  }
+}
+if (process.argv[1] &amp;&amp; path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await runCli(process.argv.slice(2));
+}</code></pre>
+  <p><strong>Input/output examples:</strong> <code>runCli(["inspect","examples/vanilla/main.js"])</code> writes a complete <code>dist/graph.json</code>, prints “Found 3 modules”, and returns 0. <code>runCli(["inspect","missing.js"])</code> returns 1 and does not replace the previous report. <code>runCli([])</code> returns 2 and prints usage. <code>runCli(["serve","examples/vanilla/main.js"])</code> starts the fixed localhost demo and returns 0 after it listens. <code>runCli(["serve","src/other.js"])</code> returns 2 before building a misleading graph. A bind failure returns 1 with a serve-specific error. The script wrapper makes those return values process exit codes while allowing tests to import <code>runCli</code> without starting anything.</p>
+  <h3>Server route isolation · <code>src/server.mjs</code></h3>
+  <pre><code>import { readFile, realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+const contentTypes = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.mjs', 'text/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8']
+]);
+const publicFiles = new Map([
+  ['/', 'examples/vanilla/index.html'],
+  ['/src/browser-inspector.mjs', 'src/browser-inspector.mjs'],
+  ['/examples/vanilla/main.js', 'examples/vanilla/main.js'],
+  ['/examples/vanilla/message.js', 'examples/vanilla/message.js'],
+  ['/examples/vanilla/suffix.js', 'examples/vanilla/suffix.js'],
+  ['/examples/vanilla/feature.js', 'examples/vanilla/feature.js'],
+  ['/examples/vanilla/style.css', 'examples/vanilla/style.css']
+]);
+function reply(status, body, contentType = 'text/plain; charset=utf-8') {
+  return {
+    status,
+    headers: { 'content-type': contentType, 'cache-control': 'no-store' },
+    body: Buffer.isBuffer(body) ? body : Buffer.from(body)
+  };
+}
+function jsonReply(graph) {
+  return reply(200, JSON.stringify(graph), 'application/json; charset=utf-8');
+}
+function fileReply(file, body) {
+  return reply(200, body, contentTypes.get(path.extname(file)));
+}
+export async function routeRequest(rawUrl, method, { rootReal, graph }) {
+  if (method !== 'GET' &amp;&amp; method !== 'HEAD') return reply(405, 'Method not allowed');
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(rawUrl, 'http://127.0.0.1').pathname); }
+  catch { return reply(400, 'Bad request'); }
+  if (pathname === '/__graph') return jsonReply(graph);
+  const relative = publicFiles.get(pathname);
+  if (!relative) return reply(404, 'Not found');
+  const expected = path.resolve(rootReal, relative);
+  try {
+    const realFile = await realpath(expected);
+    if (realFile !== expected) return reply(403, 'Forbidden');
+    if (!(await stat(realFile)).isFile()) return reply(404, 'Not found');
+    return fileReply(realFile, await readFile(realFile));
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return reply(404, 'Not found');
+    return reply(500, 'Internal server error');
+  }
+}
+export function createRequestHandler(context) {
+  return async (request, response) => {
+    try {
+      const result = await routeRequest(request.url || '/', request.method || 'GET', context);
+      response.writeHead(result.status, result.headers);
+      response.end(request.method === 'HEAD' ? undefined : result.body);
+    } catch {
+      response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8',
+        'cache-control': 'no-store' });
+      response.end('Internal server error');
+    }
+  };
+}</code></pre>
+  <p><strong>Input/output examples:</strong> <code>routeRequest("/__graph","GET",context)</code> returns 200, JSON MIME, no-store, and the startup graph. <code>routeRequest("/examples/vanilla/style.css","GET",context)</code> returns 200 with CSS MIME and the stylesheet bytes. <code>routeRequest("/package.json","GET",context)</code> returns 404 with no file bytes. An encoded traversal path returns 404; a public path that becomes a symlink returns 403. The HTTP adapter sends headers/body and omits the body for HEAD. The allowlist and canonical-path equality protect different concerns: unlisted files and symlink substitution.</p>
+  <h3>Honest browser rendering · <code>src/browser-inspector.mjs</code></h3>
+  <pre><code>async function initInspector() {
+  const panel = document.querySelector('#module-atlas');
+  let graph;
+  try {
+    const response = await fetch('/__graph', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Graph request returned ' + response.status);
+    graph = await response.json();
+    if (graph.schemaVersion !== 1) throw new Error('Unsupported graph schema');
+  } catch (error) {
+    panel.textContent = 'Graph explanation unavailable: ' + error.message;
+    return;
+  }
+  const moduleByPath = new Map(graph.modules.map(module => ['/' + module.id, module]));
+  let liveUpdates = false;
+  function reasonFor(pathname) {
+    const module = moduleByPath.get(pathname);
+    if (module) return 'Static inclusion: ' + graph.why[module.id].join(' → ');
+    if (pathname === '/examples/vanilla/style.css') return 'HTML stylesheet link; outside JS graph';
+    if (pathname === '/src/browser-inspector.mjs') return 'HTML module script; outside app graph';
+    if (pathname === '/examples/vanilla/feature.js') {
+      return 'Observed feature request; demo button contains a dynamic import; outside Task 1 static graph';
+    }
+    return 'Observed request; outside Task 1 static graph';
+  }
+  function addCell(row, value) {
+    const cell = document.createElement('td');
+    cell.textContent = String(value);
+    row.append(cell);
+  }
+  function render() {
+    const resources = performance.getEntriesByType('resource')
+      .filter(item => /\.(?:js|mjs|css)(?:[?#]|$)/.test(item.name))
+      .sort((a, b) => a.startTime - b.startTime);
+    panel.replaceChildren();
+    const heading = document.createElement('h2');
+    heading.textContent = graph.modules.length + ' static modules; ' +
+      resources.length + ' observed resources';
+    panel.append(heading);
+    const note = document.createElement('p');
+    note.textContent = 'Static paths explain inclusion. Timings are browser observations, not execution order.';
+    panel.append(note);
+    if (!liveUpdates) {
+      const refresh = document.createElement('button');
+      refresh.textContent = 'Refresh observations';
+      refresh.addEventListener('click', render);
+      panel.append('Live timing updates unavailable. ', refresh);
+    }
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    for (const label of ['Resource', 'Start (ms)', 'Transfer (bytes)', 'Explanation']) {
+      const cell = document.createElement('th');
+      cell.textContent = label;
+      header.append(cell);
+    }
+    table.append(header);
+    for (const item of resources) {
+      const row = document.createElement('tr');
+      const pathname = new URL(item.name).pathname;
+      const start = Number.isFinite(item.startTime) ? item.startTime.toFixed(1) : 'Unavailable';
+      const size = Number.isFinite(item.transferSize) &amp;&amp; item.transferSize &gt; 0
+        ? String(item.transferSize)
+        : 'Unavailable (zero or missing; cache possible)';
+      for (const value of [pathname, start, size, reasonFor(pathname)]) addCell(row, value);
+      table.append(row);
+    }
+    panel.append(table);
+  }
+  try {
+    if (typeof PerformanceObserver === 'function') {
+      const observer = new PerformanceObserver(render);
+      observer.observe({ type: 'resource', buffered: true });
+      liveUpdates = true;
+    }
+  } catch { liveUpdates = false; }
+  window.addEventListener('load', render);
+  render();
+}
+void initInspector();</code></pre>
+  <p><strong>Input/output examples:</strong> with graph path <code>main.js → message.js → suffix.js</code> and a Resource Timing entry for <code>/examples/vanilla/suffix.js</code>, the row says “Static inclusion: examples/vanilla/main.js → examples/vanilla/message.js → examples/vanilla/suffix.js.” A CSS row says it came from the HTML stylesheet link. The feature row names the observed request and the demo source's dynamic import, without inferring a click from the URL. B1/B2 separately prove the before/after click sequence. A reported transfer size of 0 displays “Unavailable (zero or missing; cache possible).” Failed graph fetch shows a visible error; missing observer shows a refresh button. All displayed values use <code>textContent</code>. The sample application's separate <code>main.js</code> keeps its button working even if the inspector fails.</p>
+
+  <h2>5. Subtasks, tests, and stop conditions</h2>
+  <p>Work in the order below because each subtask consumes the contract produced by the previous one. The commands shown are run from the project root after the baseline archive is placed in the workspace. Each test file uses <code>node:test</code> and has tests named with its gate IDs; the final <code>npm test</code> runs them all. A failure stops progression to a dependent subtask until the cause is fixed. A blocked browser check is recorded as blocked and does not make Task 1 pass.</p>
+
+  <h3>T1.1 · Restore baseline, define contract, and add fixtures</h3>
+  <p><strong>Files:</strong> arrange <code>src/</code>, <code>test/</code>, <code>examples/vanilla/</code>, and <code>docs/</code>; set the Node minimum to 24.4.0 in <code>package.json</code>; add <code>test/contract.test.mjs</code> and reusable fixtures. <strong>Code behavior:</strong> keep <code>buildGraph</code> output shape at schema v1; document supported input, canonical IDs, first-occurrence unique edges, entry order, and <code>why</code> meaning. Use <code>moduleRequests</code> with explicit unique-specifier and unsupported-attribute/phase checks, plus the unsupported static-extension guard needed by C3. T1.2 then completes real-path resolution. <strong>Example:</strong> inspecting the supplied <code>main.js</code> must yield exactly three static modules and the JSON example in section 2. <code>feature.js</code> is absent.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>C1</td><td>Run the sample entry. Compare complete IDs, entries, edges, bytes, and <code>why</code> against the documented JSON example.</td></tr>
+    <tr><td>C2</td><td>Run the same graph in two fresh Node processes. Serialized JSON bytes match exactly; no absolute paths or timestamps.</td></tr>
+    <tr><td>C3</td><td>A static unsupported extension/bare import or unsupported import attributes/phase fails with a named specifier; a literal dynamic import is explicitly excluded rather than counted as a static edge.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/contract.test.mjs
+npm test
+npm run inspect</code></pre>
+  <p><strong>Stop condition:</strong> the restored scripts work from the root, C1–C3 pass, and the sample graph is reproducible. If the layout repair still leaves import errors, fix only file placement or scripts before changing graph logic. Later subtasks rerun C tests after behavior changes.</p>
+
+  <h3>T1.2 · Resolve entries and imports safely</h3>
+  <p><strong>File:</strong> <code>src/graph.mjs</code>, with <code>test/resolution.test.mjs</code>. <strong>Call path:</strong> <code>buildGraph</code> calls <code>resolveEntry</code> for each CLI argument; <code>visit</code> calls <code>resolveLocal</code> for each static specifier; both use the same real-root check. <strong>Example:</strong> from <code>src/main.js</code>, <code>../shared.js</code> resolves to ID <code>shared.js</code>. Two in-root symlink spellings produce one module record. An outside symlink throws before its bytes are read.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>R1</td><td><code>./util</code>, <code>./util.js</code>, <code>./nested/index.js</code>, and an in-root <code>../shared.js</code> resolve to the documented IDs and extension order.</td></tr>
+    <tr><td>R2</td><td>Missing entry, missing dependency, and directory used as an explicit file fail with entry or importer context; no graph result is returned.</td></tr>
+    <tr><td>R3</td><td>Bare, absolute, query, and hash specifiers fail with importer/specifier context. A <code>.js</code> symlink to an in-root <code>.txt</code> target is rejected as non-JS.</td></tr>
+    <tr><td>R4</td><td>Final file outside the root through <code>../</code> or a symlink is rejected. Symlink creation is skipped only if the platform forbids it, with the limitation recorded.</td></tr>
+    <tr><td>R5</td><td>Different spellings of one real file, including an in-root symlink, map to one canonical module ID. Entry argument order remains visible in <code>entries</code>.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/resolution.test.mjs
+node --no-warnings --experimental-vm-modules --test test/contract.test.mjs</code></pre>
+  <p><strong>Stop condition:</strong> R1–R5 and C1–C3 pass. If an ID changes unexpectedly, inspect the resolved real target and compare it to the documented identity policy; do not weaken the boundary check to satisfy a fixture.</p>
+
+  <h3>T1.3 · Parse and traverse static ESM</h3>
+  <p><strong>File:</strong> <code>src/graph.mjs</code>, with the existing <code>test/graph.test.mjs</code> expanded. <strong>Call path:</strong> <code>visit(realFile)</code> reads source, constructs <code>SourceTextModule</code>, stores the node before recursion, then follows supported <code>moduleRequests</code>. <strong>Example:</strong> <code>import "./side-effect.js"</code> and <code>export {x} from "./shared.js"</code> each create an edge; the string <code>"import './fake.js'"</code> does not; <code>import("./feature.js")</code> does not. A→B→A yields two nodes and both edges without looping. Import attributes and non-evaluation phases fail explicitly.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>G1</td><td>Named, default, namespace, side-effect, <code>export *</code>, and named re-export fixtures produce correct static edges through <code>moduleRequests</code>. A repeated specifier appears once by contract.</td></tr>
+    <tr><td>G2</td><td>Import-looking text inside strings/comments produces no edge.</td></tr>
+    <tr><td>G3</td><td>Self import, two-file cycle, diamond, and two-entry shared dependency terminate with one canonical node per file and all expected edges.</td></tr>
+    <tr><td>G4</td><td>Malformed module syntax reports its source ID; no successful graph is returned or new CLI output emitted.</td></tr>
+    <tr><td>G5</td><td>Literal dynamic import target is absent from the static graph and described as outside scope in the UI/docs.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/graph.test.mjs
+node --no-warnings --experimental-vm-modules --test test/resolution.test.mjs</code></pre>
+  <p><strong>Stop condition:</strong> G1–G5 and R1–R5 pass. Do not replace parsing with a source-text regular expression to make a fixture pass.</p>
+
+  <h3>T1.4 · Compute paths and serialize deterministic JSON</h3>
+  <p><strong>File:</strong> <code>src/graph.mjs</code>, with <code>test/explanations.test.mjs</code>. <strong>Call path:</strong> after all <code>visit</code> calls, <code>buildGraph</code> calls <code>computeWhy(entries,nodes)</code>; it serializes sorted modules and sorted <code>why</code> keys. <strong>Example:</strong> if <code>entry.js</code> imports <code>left.js</code> then <code>right.js</code>, and both import <code>shared.js</code>, the explanation is <code>entry.js → left.js → shared.js</code>. For source text <code>é</code>, byte count is the UTF-8 count from <code>Buffer.byteLength</code>, not a character count.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>E1</td><td>Chain, diamond, equal-length ties, and multiple entries have shortest paths with declared-entry and source-edge tie order.</td></tr>
+    <tr><td>E2</td><td>Cycle paths terminate; Unicode source byte count equals <code>Buffer.byteLength(source,"utf8")</code>.</td></tr>
+    <tr><td>E3</td><td>Two fixed-fixture serializations have identical schema version, module order, edge order, bytes, and paths.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/explanations.test.mjs
+node --no-warnings --experimental-vm-modules --test test/contract.test.mjs</code></pre>
+  <p><strong>Stop condition:</strong> E1–E3 and C1–C3 pass. A shorter path must win over a path discovered earlier by depth-first traversal; sorting must not change the selected path.</p>
+
+  <h3>T1.5 · Make the CLI dependable</h3>
+  <p><strong>File:</strong> <code>src/cli.mjs</code>, with <code>test/cli.test.mjs</code>. <strong>Call path:</strong> script wrapper → <code>runCli</code> → <code>buildGraph</code> → <code>writeGraphAtomically</code> for inspect, or <code>startDemo</code> for the fixed vanilla serve entry. <strong>Example:</strong> <code>inspect examples/vanilla/main.js</code> reports three unique modules and writes complete JSON. A missing entry returns 1 and leaves any prior report unchanged; no arguments or <code>serve src/other.js</code> returns 2 with usage context.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>L1</td><td>One and multiple entries exit 0; output JSON parses; printed count equals unique module records.</td></tr>
+    <tr><td>L2</td><td>No args, unknown command, non-demo serve entry, missing entry, and parse failure return the documented nonzero code, useful command-specific stderr, and no newly written partial report.</td></tr>
+    <tr><td>L3</td><td>Documented npm commands run from the project root on Node 24 without hidden flags or package installation.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/cli.test.mjs
+npm run inspect
+npm test</code></pre>
+  <p><strong>Stop condition:</strong> L1–L3 pass. If atomic rename fails, report the failure and retain the old report; never fall back to a direct partial write.</p>
+
+  <h3>T1.6 · Serve only the demo and compare browser observations</h3>
+  <p><strong>Files:</strong> <code>src/server.mjs</code>, <code>src/browser-inspector.mjs</code>, <code>examples/vanilla/index.html</code>, <code>test/server.test.mjs</code>, and <code>test/browser-verification.html</code>. <strong>Call path:</strong> <code>startDemo</code> creates the HTTP handler; <code>routeRequest</code> serves only public paths and <code>/__graph</code>; HTML loads native ESM and the inspector; the inspector fetches the graph and renders Resource Timing entries. This inspector matches canonical graph IDs only for the shipped no-symlink demo. <strong>Example:</strong> before click, CSS/main/message/suffix/inspector appear in Network and feature does not. After click, feature appears; its row names the observed request and the dynamic import in demo source, while B1/B2 provide the click sequence evidence.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>S1</td><td>GET demo HTML, JS, CSS, and <code>/__graph</code>: 200, correct MIME/body, and no-store. Request handler test needs no bound port.</td></tr>
+    <tr><td>S2</td><td>Missing file, encoded traversal, in-root or escaping symlink at a public route, and private file: 404/403, no exposed bytes, no crash.</td></tr>
+    <tr><td>B1</td><td>Fresh real-browser load: greeting and required initial resources visible; feature absent; static rows have inclusion chains.</td></tr>
+    <tr><td>B2</td><td>Click once: message changes, feature request appears in Network/table, and its row says outside static graph without inferring the click from the URL alone.</td></tr>
+    <tr><td>B3</td><td>CSS row names the HTML link; zero/unavailable transfer size is labelled unavailable, never asserted as a real zero-byte transfer.</td></tr>
+    <tr><td>B4</td><td>With observer unavailable or graph request blocked, page shows an explicit fallback/error while the feature button still works.</td></tr>
+  </table></div>
+  <pre><code>node --no-warnings --experimental-vm-modules --test test/server.test.mjs
+npm run demo
+# Then open http://127.0.0.1:4173/ in a real browser and record B1–B4.</code></pre>
+  <p><strong>Stop condition:</strong> S1–S2 pass and B1–B4 have real-browser evidence. If binding <code>127.0.0.1:4173</code> fails with <code>EPERM</code>, mark B1–B4 blocked, capture that exact error, and provide these same commands for a machine that permits a local port. A blocked browser gate is not a pass.</p>
+
+  <h3>T1.7 · Update docs and deliver evidence</h3>
+  <p><strong>Files:</strong> <code>README.md</code>, <code>docs/architecture.html</code>, this plan, and the HTML browser-verification record. <strong>Code/document behavior:</strong> the README states exact commands and limits, the architecture slice-1 status reflects test evidence, and the exit report lists every gate. <strong>Example:</strong> if S tests pass but the browser is blocked, the status reads “Task 1 pending browser verification,” even when all graph tests pass.</p>
+  <div class="scroll"><table>
+    <tr><th>Gate</th><th>Test input and expected result</th></tr>
+    <tr><td>D1</td><td>Follow README on the declared Node version: <code>npm test</code>, <code>npm run inspect</code>, and demo start where local binding is allowed.</td></tr>
+    <tr><td>D2</td><td>Compare docs against output and test record; no claim of dynamic/CSS graph, bundle, TypeScript input, or completed browser check without evidence.</td></tr>
+    <tr><td>D3</td><td>Review the final report; all 28 IDs have pass, fail, or blocked status and evidence, with none omitted.</td></tr>
+  </table></div>
+  <pre><code>node --version
+npm test
+npm run inspect
+npm run demo</code></pre>
+  <p><strong>Stop condition:</strong> docs match observed behavior and the gate report is complete. Task 1 is complete only when all applicable checks, including the real-browser checks, pass. Otherwise the report says pending verification and names the blocker.</p>
+
+  <h2>6. Test implementation map</h2>
+  <p>Automated tests use the built-in Node test runner. “Manual browser” means a real browser, a recorded browser version, a DevTools Network screenshot or exported trace, and observed page state. No browser automation package is added for this first iteration; if manual verification proves unreliable, propose a pinned browser tool as a plan amendment before adding it.</p>
+  <div class="scroll"><table>
+    <tr><th>ID</th><th>File / fixture and command</th><th>Expected evidence / mode</th></tr>
+    <tr><td>C1</td><td><code>test/contract.test.mjs</code>, <code>examples/vanilla/main.js</code>; targeted T1.1 command</td><td>Full documented schema snapshot, IDs, edges, bytes, and path; automated.</td></tr>
+    <tr><td>C2</td><td><code>test/contract.test.mjs</code>, chain; targeted T1.1 command</td><td>Two fresh process outputs compare byte-for-byte; automated.</td></tr>
+    <tr><td>C3</td><td><code>test/contract.test.mjs</code>, unsupported extension/bare/import-attributes/dynamic fixture; targeted T1.1 command</td><td>Unsupported static input errors; dynamic-only file explicitly absent; automated.</td></tr>
+    <tr><td>R1</td><td><code>test/resolution.test.mjs</code>, resolution fixture; targeted T1.2 command</td><td>Exact, extension, index, and in-root parent paths plus precedence; automated.</td></tr>
+    <tr><td>R2</td><td><code>test/resolution.test.mjs</code>, missing file/directory fixture; targeted T1.2 command</td><td>Contextual nonzero error and no successful graph; automated.</td></tr>
+    <tr><td>R3</td><td><code>test/resolution.test.mjs</code>, bare/absolute/query/hash and JS-alias-to-text fixture; targeted T1.2 command</td><td>Importer/specifier named and non-JS real target rejected; automated.</td></tr>
+    <tr><td>R4</td><td><code>test/resolution.test.mjs</code>, runtime outside symlink and parent escape; targeted T1.2 command</td><td>Both rejected; symlink creation blocked only when the platform forbids it and recorded; automated.</td></tr>
+    <tr><td>R5</td><td><code>test/resolution.test.mjs</code>, two spellings/in-root symlink; targeted T1.2 command</td><td>One canonical node, documented entry behavior; automated.</td></tr>
+    <tr><td>G1</td><td><code>test/graph.test.mjs</code>, syntax imports/reexports/repeated; <code>npm test</code></td><td>Correct side-effect, named, default, namespace, and re-export edges; repeated specifier appears once; automated.</td></tr>
+    <tr><td>G2</td><td><code>test/graph.test.mjs</code>, strings-comments; <code>npm test</code></td><td>No false edges; automated.</td></tr>
+    <tr><td>G3</td><td><code>test/graph.test.mjs</code>, cycle/diamond/two-entries; <code>npm test</code></td><td>Traversal terminates and unique nodes retain expected edges; automated.</td></tr>
+    <tr><td>G4</td><td><code>test/graph.test.mjs</code> and <code>test/cli.test.mjs</code>, invalid syntax; <code>npm test</code></td><td>Source named; no new graph report; automated.</td></tr>
+    <tr><td>G5</td><td><code>test/graph.test.mjs</code>, dynamic fixture; <code>npm test</code></td><td>Lazy file omitted; docs/UI label it outside graph; automated plus D2.</td></tr>
+    <tr><td>E1</td><td><code>test/explanations.test.mjs</code>, chain/diamond/equal paths/two entries; targeted T1.4 command</td><td>Shortest paths and tie order exact; automated.</td></tr>
+    <tr><td>E2</td><td><code>test/explanations.test.mjs</code>, cycle/Unicode; targeted T1.4 command</td><td>Finite path and <code>Buffer.byteLength</code> count; automated.</td></tr>
+    <tr><td>E3</td><td><code>test/explanations.test.mjs</code>, fixed snapshot; targeted T1.4 command</td><td>Stable schema, sort, edge and explanation ordering across runs; automated.</td></tr>
+    <tr><td>L1</td><td><code>test/cli.test.mjs</code>, one/two entries; <code>npm test</code></td><td>Exit 0, valid JSON, printed unique count; automated.</td></tr>
+    <tr><td>L2</td><td><code>test/cli.test.mjs</code>, no args/unknown/non-demo serve/missing/invalid; <code>npm test</code></td><td>Exit 2 for usage, 1 for runtime failures; command-specific error and no newly written partial JSON; automated.</td></tr>
+    <tr><td>L3</td><td><code>package.json</code>/<code>README.md</code>; <code>npm test</code>, <code>npm run inspect</code></td><td>Commands work from project root on Node 24; automated plus review.</td></tr>
+    <tr><td>S1</td><td><code>test/server.test.mjs</code>; <code>npm test</code></td><td>Allowed HTML/JS/CSS/graph routes return 200, MIME, body, no-store; automated request handler tests.</td></tr>
+    <tr><td>S2</td><td><code>test/server.test.mjs</code>, private/encoded/in-root and escaping symlink cases; <code>npm test</code></td><td>404/403, no private bytes or crash; automated request handler tests.</td></tr>
+    <tr><td>B1</td><td><code>test/browser-verification.html</code>; <code>npm run demo</code>, load fresh page</td><td>Greeting, required initial requests, no feature, valid static chains; manual browser + Network evidence.</td></tr>
+    <tr><td>B2</td><td><code>test/browser-verification.html</code>; click once</td><td>Changed message, feature request and “outside static graph” row; manual browser + Network evidence.</td></tr>
+    <tr><td>B3</td><td><code>test/browser-verification.html</code>; inspect CSS and simulate zero size if needed</td><td>HTML link label and “unavailable” size; manual browser with controlled API fallback if needed.</td></tr>
+    <tr><td>B4</td><td><code>test/browser-verification.html</code>; simulate no observer and graph fetch failure</td><td>Visible fallback/error; feature button still works; manual browser.</td></tr>
+    <tr><td>D1</td><td><code>README.md</code>; clean checkout, <code>npm test</code>, <code>npm run inspect</code>, <code>npm run demo</code></td><td>Run steps work on declared Node version; manual command review plus output.</td></tr>
+    <tr><td>D2</td><td><code>README.md</code> and <code>docs/architecture.html</code>; review against output</td><td>No overclaim about dynamic/CSS graph, bundle, TS, or browser status; manual review.</td></tr>
+    <tr><td>D3</td><td>Final report; compare all 28 IDs above</td><td>Each ID has pass/fail/blocked and evidence; manual report review.</td></tr>
+  </table></div>
+  <h3>Representative automated test code</h3>
+  <p>These excerpts show the intended assertion style. The final test files will also compare the complete schema snapshot for C1 and create temporary symlink fixtures for R4/R5. Assertions check externally visible results rather than calling private helpers.</p>
+  <pre><code>// test/contract.test.mjs
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { buildGraph } from '../src/graph.mjs';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+test('C1 sample graph has the documented inclusion chain', async () => {
+  const graph = await buildGraph(['examples/vanilla/main.js'], root);
+  assert.deepEqual(graph.entries, ['examples/vanilla/main.js']);
+  assert.equal(graph.modules.length, 3);
+  assert.deepEqual(graph.why['examples/vanilla/suffix.js'], [
+    'examples/vanilla/main.js',
+    'examples/vanilla/message.js',
+    'examples/vanilla/suffix.js'
+  ]);
+  assert.equal(graph.modules.some(module => module.id.endsWith('/feature.js')), false);
+});
+
+// test/server.test.mjs
+import { realpath } from 'node:fs/promises';
+import { routeRequest } from '../src/server.mjs';
+const rootReal = await realpath(root);
+const graph = await buildGraph(['examples/vanilla/main.js'], root);
+test('S2 does not serve a private project file', async () => {
+  const response = await routeRequest('/package.json', 'GET', { rootReal, graph });
+  assert.equal(response.status, 404);
+  assert.equal(response.body.includes(Buffer.from('"name": "module-atlas"')), false);
+});</code></pre>
+  <h3>Final command list and browser checklist</h3>
+  <pre><code>node --version
+npm test
+npm run inspect
+node --no-warnings --experimental-vm-modules src/cli.mjs inspect examples/vanilla/main.js
+npm run demo
+# Open http://127.0.0.1:4173/ in a real browser.</code></pre>
+  <ol>
+    <li>Record browser name/version and use a fresh profile or explicitly record cache state. Open DevTools Network, preserve log, and reload.</li>
+    <li>Capture the greeting and initial Network list: main, message, suffix, CSS, inspector; confirm feature is absent. Compare static rows with <code>dist/graph.json</code>.</li>
+    <li>Click once. Capture changed message, feature request, its timing row, and the outside-static-graph label.</li>
+    <li>Check CSS source label and zero-size wording. For the missing-observer case, use a temporary DevTools Local Override of the demo HTML that sets <code>window.PerformanceObserver = undefined</code> before loading the inspector module. For graph failure, use DevTools Network request blocking on <code>/__graph</code>. Remove both overrides afterward; record fallback/error state and the working feature button.</li>
+    <li>Save screenshots or a Network trace path in <code>test/browser-verification.html</code>. If the local port cannot bind, capture the exact error and run the same steps on a machine that permits binding before declaring Task 1 complete.</li>
+  </ol>
+
+  <h2>7. Final exit report format</h2>
+  <p>The implementation report will include: source baseline and any approved plan amendments; files added/changed and their behavior; Node/browser versions; exact commands and output summaries; a table with each of C1–C3, R1–R5, G1–G5, E1–E3, L1–L3, S1–S2, B1–B4, and D1–D3 marked pass/fail/blocked with evidence links; browser screenshot/trace paths; remaining limitations; and one plain statement: “Task 1 passed” only if every applicable gate and real-browser check passed, otherwise “Task 1 pending verification” with the exact blocker.</p>
+
+  <h2>8. Resolved assumptions</h2>
+  <ol>
+    <li>The user confirmed <code>/Users/asishkumar_1/Downloads/module-atlas-v0.1</code> as the code baseline. The source was arranged under the expected directories in the selected workspace after approval.</li>
+    <li>The flattened archive layout is treated as a packaging error because every script and source import points to the missing directories.</li>
+    <li>Real-browser verification used the Codex in-app browser and a recorded Resource Timing trace, without adding a browser package. A separate DevTools Network capture is still pending.</li>
+    <li>The review's two serve alternatives are resolved by the brief's required <code>serve &lt;entry&gt;</code> syntax and the fixed demo scope: retain the command, but accept only <code>examples/vanilla/main.js</code>. Arbitrary entries remain available to <code>inspect</code>.</li>
+    <li>The review's URL-alias concern is resolved by documenting that the browser inspector covers only the shipped no-symlink demo. Graph canonicalization can still accept in-root symlinks; the server rejects symlinked public files.</li>
+  </ol>
+  <p><strong>Clarification status:</strong> no blocking user question remains from the review. The other findings are correctness changes with a clear choice from the Task 1 scope: reject non-JS real targets, add error context, use <code>moduleRequests</code> on Node 24.4+, qualify browser observations, and keep command-specific server errors.</p>
+  <h2>9. Implementation notes and deviations</h2>
+  <p>The approved design was implemented with the same public graph schema, commands, route list, and error policy. The resolver checks both the requested lexical path and the canonical real path. The server decodes and rejects raw parent-path segments before any URL normalization so an encoded traversal cannot normalize into the public <code>/</code> route. Reusable temporary-fixture code lives in <code>support/fixture.mjs</code>, outside Node's test discovery directory.</p>
+  <p>Browser fallback checks used temporary local source overrides rather than DevTools Local Overrides or request blocking. The original files were restored and the normal demo was reloaded afterward. These checks and the remaining DevTools Network evidence gap are recorded in <a href="task-1-implementation-report.html">the implementation report</a> and <a href="../test/browser-verification.html">browser verification record</a>.</p>
+  <p class="muted">Sources: <a href="/Users/asishkumar_1/Downloads/architecture.html">supplied architecture</a>, <a href="/Users/asishkumar_1/Downloads/task-1-agent-implementation-brief.html">supplied Task 1 brief</a>, and read-only audit of the downloaded prototype. Document requirements are treated as project requirements for this plan; the user’s instruction to wait for approval controls implementation timing.</p>
+</main>
+</html>

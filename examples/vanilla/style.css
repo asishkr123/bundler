@@ -1,0 +1,6 @@
+body { font: 16px/1.5 system-ui; background: #f4f7fa; color: #152333; margin: 3rem auto; max-width: 70rem; padding: 0 1rem; }
+button { border: 0; border-radius: .5rem; background: #145d8a; color: white; padding: .7rem 1rem; cursor: pointer; }
+#module-atlas { margin-top: 2rem; padding: 1rem; background: white; border-radius: .7rem; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+td, th { border-bottom: 1px solid #dce3e9; padding: .5rem; text-align: left; }
+td:last-child { min-width: 20rem; }

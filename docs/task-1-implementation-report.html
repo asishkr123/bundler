@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module Atlas · Task 1 implementation report</title>
+<style>
+  :root{font:16px/1.5 system-ui,sans-serif;color:#183047;background:#f4f7fb}
+  body{margin:0}main{max-width:1080px;margin:auto;padding:2.5rem 1.25rem 5rem}
+  h1,h2{line-height:1.2}h2{margin-top:2rem;border-top:1px solid #cbd9e5;padding-top:1.1rem}
+  table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #cad8e5;padding:.48rem .6rem;text-align:left;vertical-align:top}th{background:#e8f1f8}
+  code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}a{color:#075b8b}
+  .note{background:#fff4d7;border:1px solid #dfc58c;padding:1rem;border-radius:.5rem}
+</style>
+<main>
+  <p>5 October 2026 · approved implementation</p>
+  <h1>Task 1 implementation report</h1>
+  <p class="note"><strong>Status: Task 1 pending verification.</strong> The implementation and automated checks are complete. The in-app browser showed the feature request after a click, but an independent DevTools Network screenshot or exported trace required by B2 was unavailable. All other gates passed. No blocked gate is counted as passed.</p>
+
+  <h2>Delivered</h2>
+  <p>The user-confirmed <code>module-atlas-v0.1</code> prototype was restored from its flattened download layout into <code>src/</code>, <code>test/</code>, <code>examples/vanilla/</code>, and <code>docs/</code>. There is no Git repository in this workspace. No npm dependency or lockfile was added.</p>
+  <table><tr><th>Files</th><th>Behavior</th></tr>
+    <tr><td><code>src/graph.mjs</code></td><td>Canonical real-path resolution, root containment, supported static ESM requests, unique edges, cycle-safe traversal, deterministic shortest explanations and JSON.</td></tr>
+    <tr><td><code>src/cli.mjs</code></td><td>Importable CLI runner, useful exit codes, atomic graph report replacement, fixed demo entry and localhost startup.</td></tr>
+    <tr><td><code>src/server.mjs</code></td><td>Public route allowlist, raw traversal rejection, symlink refusal, MIME/no-store headers, bounded error responses, GET/HEAD handling.</td></tr>
+    <tr><td><code>src/browser-inspector.mjs</code></td><td>Honest static/observed labels, unavailable-size wording, refresh fallback, visible graph error, text-only DOM rendering.</td></tr>
+    <tr><td><code>test/*.test.mjs</code>, <code>support/fixture.mjs</code></td><td>23 automated checks covering the C/R/G/E/L/S gates; fixtures use temporary project roots.</td></tr>
+    <tr><td><code>README.md</code>, <code>docs/architecture.html</code>, <code>package.json</code>, <code>.gitignore</code></td><td>Documented Node minimum, commands, schema, limitations, pending evidence, and ignored generated output.</td></tr>
+    <tr><td><code>test/browser-verification.html</code></td><td>Real-browser observations and the remaining DevTools capture step.</td></tr>
+  </table>
+  <p>The delivered code follows the <a href="task-1-code-implementation-plan.html">approved code plan</a>. Two focused changes improve the proposed design: the resolver rejects lexical escapes before checking real targets, and the server checks raw decoded parent segments before URL normalization. Temporary local browser-test overrides were restored byte-for-byte.</p>
+
+  <h2>Commands and environment</h2>
+  <p>Node <code>v24.14.0</code>; npm <code>11.9.0</code>. The in-app browser user agent reported Chromium <code>Chrome/153.0.0.0</code> on macOS. The first sandboxed <code>npm run demo</code> bind failed with <code>EPERM</code>; the approved local bind succeeded and served <code>127.0.0.1:4173</code>.</p>
+  <table><tr><th>Command</th><th>Observed result</th></tr>
+    <tr><td><code>npm test</code></td><td>Exit 0; 23 tests passed, 0 failed, 0 skipped.</td></tr>
+    <tr><td><code>node --no-warnings --experimental-vm-modules --test test/contract.test.mjs test/resolution.test.mjs test/graph.test.mjs test/explanations.test.mjs test/cli.test.mjs test/server.test.mjs</code></td><td>Exit 0; same 23 focused tests passed.</td></tr>
+    <tr><td><code>npm run inspect</code></td><td>Exit 0; found 3 modules and wrote a valid <code>dist/graph.json</code> with the documented chain.</td></tr>
+    <tr><td><code>npm run demo</code></td><td>After local bind approval, printed <code>Demo: http://127.0.0.1:4173/</code>; the page loaded in a real browser.</td></tr>
+  </table>
+
+  <h2>Gate results</h2>
+  <p><strong>27 pass, 1 blocked, 0 fail.</strong> Test names in the referenced files include their gate IDs. Browser detail is in <a href="../test/browser-verification.html">the browser record</a>.</p>
+  <table><tr><th>Gate</th><th>Status</th><th>Evidence</th></tr>
+    <tr><td>C1</td><td>Pass</td><td><code>test/contract.test.mjs</code>: complete sample schema comparison.</td></tr>
+    <tr><td>C2</td><td>Pass</td><td><code>test/contract.test.mjs</code>: two fresh-process serializations identical.</td></tr>
+    <tr><td>C3</td><td>Pass</td><td><code>test/contract.test.mjs</code>: unsupported static input errors; dynamic target absent.</td></tr>
+    <tr><td>R1</td><td>Pass</td><td><code>test/resolution.test.mjs</code>: exact, extension, index, parent and precedence.</td></tr>
+    <tr><td>R2</td><td>Pass</td><td><code>test/resolution.test.mjs</code>: missing/directory context.</td></tr>
+    <tr><td>R3</td><td>Pass</td><td><code>test/resolution.test.mjs</code>: bare/absolute/query/hash and non-JS alias rejected.</td></tr>
+    <tr><td>R4</td><td>Pass</td><td><code>test/resolution.test.mjs</code>: parent and outside-symlink escapes rejected.</td></tr>
+    <tr><td>R5</td><td>Pass</td><td><code>test/resolution.test.mjs</code>: canonical aliases collapse; entry order retained.</td></tr>
+    <tr><td>G1</td><td>Pass</td><td><code>test/graph.test.mjs</code>: import and re-export forms; unique specifier edge.</td></tr>
+    <tr><td>G2</td><td>Pass</td><td><code>test/graph.test.mjs</code>: strings/comments create no edge.</td></tr>
+    <tr><td>G3</td><td>Pass</td><td><code>test/graph.test.mjs</code>: self/cycle/diamond/shared traversal.</td></tr>
+    <tr><td>G4</td><td>Pass</td><td><code>test/graph.test.mjs</code> and <code>test/cli.test.mjs</code>: contextual parse error, no new report.</td></tr>
+    <tr><td>G5</td><td>Pass</td><td><code>test/graph.test.mjs</code>: literal dynamic import omitted; UI/docs label scope.</td></tr>
+    <tr><td>E1</td><td>Pass</td><td><code>test/explanations.test.mjs</code>: shortest paths and tie order.</td></tr>
+    <tr><td>E2</td><td>Pass</td><td><code>test/explanations.test.mjs</code>: finite cycle path and UTF-8 byte count.</td></tr>
+    <tr><td>E3</td><td>Pass</td><td><code>test/explanations.test.mjs</code>: stable schema, sorted IDs, ordered edges/paths.</td></tr>
+    <tr><td>L1</td><td>Pass</td><td><code>test/cli.test.mjs</code>: one/multiple entries, complete JSON and unique count.</td></tr>
+    <tr><td>L2</td><td>Pass</td><td><code>test/cli.test.mjs</code>: usage/runtime failures and unchanged previous report.</td></tr>
+    <tr><td>L3</td><td>Pass</td><td><code>npm test</code>, <code>npm run inspect</code>, and <code>npm run demo</code> from the documented root.</td></tr>
+    <tr><td>S1</td><td>Pass</td><td><code>test/server.test.mjs</code>: public routes, JSON, MIME, no-store, HEAD.</td></tr>
+    <tr><td>S2</td><td>Pass</td><td><code>test/server.test.mjs</code>: private, malformed/traversal, and symlink routes.</td></tr>
+    <tr><td>B1</td><td>Pass</td><td>Real-browser initial page and five-resource table; feature absent.</td></tr>
+    <tr><td>B2</td><td>Blocked</td><td>Click, message, and feature Resource Timing row observed; independent DevTools Network screenshot/trace unavailable.</td></tr>
+    <tr><td>B3</td><td>Pass</td><td>Real-browser CSS source label and controlled zero-size branch.</td></tr>
+    <tr><td>B4</td><td>Pass</td><td>Real-browser observer-unavailable and graph-fetch-failure overrides; button remained usable.</td></tr>
+    <tr><td>D1</td><td>Pass</td><td>Documented commands ran from the restored project root with Node v24.14.0.</td></tr>
+    <tr><td>D2</td><td>Pass</td><td>README and architecture align with static graph, native ESM demo, and pending B2 evidence.</td></tr>
+    <tr><td>D3</td><td>Pass</td><td>This table enumerates every one of the 28 required gate IDs.</td></tr>
+  </table>
+
+  <h2>Remaining work and limits</h2>
+  <p>Capture and save the DevTools Network evidence described in the <a href="../test/browser-verification.html">browser record</a> to close B2. The graph deliberately excludes <code>import()</code> and CSS dependencies. It emits no bundle or performance claim. The server is a fixed localhost demo, and the Node VM parser remains experimental.</p>
+</main>
+</html>

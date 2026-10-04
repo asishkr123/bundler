@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Module Atlas · Architecture and build plan</title>
+<style>
+  :root { color-scheme: light; --ink:#14243a; --muted:#4b6175; --line:#d8e3ee; --blue:#16618c; --wash:#f2f7fb; }
+  * { box-sizing:border-box } body { margin:0; background:var(--wash); color:var(--ink); font:16px/1.6 system-ui,sans-serif }
+  main { max-width:1060px; margin:auto; padding:3rem 1.2rem 6rem } h1,h2,h3 { line-height:1.2 } h1 { font-size:clamp(2.3rem,5vw,4rem); margin:.3rem 0 }
+  h2 { margin:3rem 0 1rem; border-top:1px solid var(--line); padding-top:2rem } h3 { margin:1.5rem 0 .5rem }
+  .eyebrow { color:var(--blue); font-weight:700; letter-spacing:.12em; text-transform:uppercase; font-size:.78rem }
+  .lead { max-width:760px; color:var(--muted); font-size:1.18rem } .card { background:white; border:1px solid var(--line); border-radius:14px; padding:1.2rem 1.5rem; margin:1rem 0 }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem } .grid .card { margin:0 }
+  table { border-collapse:collapse; width:100%; background:white; font-size:.91rem } td,th { border:1px solid var(--line); text-align:left; padding:.7rem; vertical-align:top } th { background:#e7f0f7 }
+  .scroll { overflow-x:auto } code,pre { font: .88em/1.55 ui-monospace,SFMono-Regular,Consolas,monospace } code { background:#eaf0f6; padding:.1em .3em; border-radius:4px }
+  pre { background:#122538; color:#e8f5ff; padding:1.2rem; overflow:auto; border-radius:10px } pre code { background:none; padding:0; color:inherit }
+  a { color:#075d91 } .small { color:var(--muted); font-size:.9rem } .pill { display:inline-block; background:#dceef9; color:#124966; padding:.25rem .65rem; border-radius:30px; font-size:.83rem; font-weight:700 }
+  li { margin:.4rem 0 } strong { color:#0c3755 }
+</style>
+<main>
+  <div class="eyebrow">Project brief · 4 October 2026</div>
+  <h1>Build a bundler that explains itself</h1>
+  <p class="lead">Module Atlas is a learning project and a potential developer tool: a modern ESM build pipeline with an evidence-backed explanation of which source modules became which chunks, and why the browser requested those chunks. Build correctness first, then measure performance.</p>
+  <div class="card"><span class="pill">Built now: slice 1</span><p>The repository includes a static JavaScript import graph, a JSON inclusion report, and a native ESM browser demo that records resource timing. It does not produce a bundled application yet. Run <code>npm test</code>, <code>npm run inspect</code>, and <code>npm run demo</code>.</p></div>
+
+  <h2>1. What a bundler actually does</h2>
+  <p>Start at one or more entries. Resolve each import to a file or package export. Parse the file, transform its syntax and assets, and recursively collect dependencies into a graph. Determine which code has observable effects and which exports are used. Partition the remaining graph into initial and lazy chunks, generate runtime-valid code, optionally minify it, and emit files plus a manifest. A development server can use the same graph while serving modules on demand.</p>
+  <div class="scroll"><table><tr><th>Stage</th><th>Input → output</th><th>Hard correctness question</th></tr>
+    <tr><td>Resolve</td><td><code>./foo</code>, <code>react</code> → canonical module ID</td><td>Package exports, conditions, browser fields, symlinks, aliases, and duplicates</td></tr>
+    <tr><td>Parse / transform</td><td>TS/JSX/CSS → syntax tree and browser JS/CSS</td><td>Preserve source positions, import semantics, errors, and source maps</td></tr>
+    <tr><td>Link / analyze</td><td>Modules → dependency and export graph</td><td>Cycles, re-exports, live bindings, top-level await, side effects</td></tr>
+    <tr><td>Partition / generate</td><td>Graph → entry, shared, and lazy chunks</td><td>Evaluate a module once; load dependencies before use; stable output</td></tr>
+    <tr><td>Observe</td><td>Output manifest + browser observations → explanation</td><td>Separate predicted inclusion from requests actually recorded</td></tr></table></div>
+
+  <h2>2. What we can learn from existing tools</h2>
+  <div class="scroll"><table><tr><th>Tool</th><th>Useful design lesson</th><th>Tradeoff to study in our benchmarks</th></tr>
+    <tr><td>Webpack</td><td>Its entry based dependency graph covers code and assets; loaders and plugins make a broad ecosystem possible.</td><td>Flexible transformations and configuration add complexity. Measure rebuild latency and explainability on the same app, with chosen settings documented.</td></tr>
+    <tr><td>Rollup</td><td>ESM linking, tree shaking, plugins, and native ESM code splitting are a strong model for optimized output.</td><td>Correct side effect analysis and ESM semantics are difficult. Compare output and behavior, not just file size.</td></tr>
+    <tr><td>Vite</td><td>On demand ESM development and dependency pre-bundling made startup and updates fast. Vite 8 uses Rolldown and Oxc for its unified build pipeline.</td><td>Many browser module requests can affect large applications. Compare cold startup, navigation, HMR, and production builds separately.</td></tr></table></div>
+  <p class="small">These are design directions, not claims that Module Atlas outperforms any of these tools. Vite's implementation evolves; pin versions and consult current documentation during each comparison.</p>
+
+  <h2>3. The differentiator: a causal build manifest</h2>
+  <p>Each decision should leave a machine-readable record. An agent can query it, but the underlying evidence remains inspectable by a developer. The first JSON report already records static import edges and a shortest inclusion chain. Future versions will attach module, export, chunk, asset, route, and browser observation IDs.</p>
+  <pre><code>{
+  "module": "src/chart.tsx",
+  "includedBy": ["src/main.tsx", "src/routes/reports.tsx"],
+  "chunk": "reports.8b42.js",
+  "reason": "dynamic import from reports route",
+  "bytes": { "raw": 21800, "gzip": 6500 },
+  "browser": { "observedOn": ["/reports"], "priority": "normal" },
+  "evidence": ["import-edge:41", "chunk-decision:9"]
+}</code></pre>
+  <p>That example is a <strong>target schema sketch</strong>; the current graph JSON only contains entries, module sizes, imports, and shortest paths. An assistant might answer “why did this CSS load?” by tracing the CSS import or HTML link and the containing route. It should distinguish direct evidence from a suggestion such as “consider a lazy boundary.” Recommendations need reproducible before/after measurements, and the agent must never silently change chunk policy.</p>
+  <div class="grid">
+    <div class="card"><h3>Build facts</h3><p>Source imports, resolved IDs, used exports, side effect decisions, chunk membership, emitted bytes, build duration.</p></div>
+    <div class="card"><h3>Browser observations</h3><p>Navigation, resource start and duration, initiator type where provided, cache state and transfer size where exposed, preload or prefetch links.</p></div>
+    <div class="card"><h3>Advice</h3><p>Identify unusually large initial chunks, duplicated packages, eager imports behind infrequent routes, or prefetches unused in a measured session.</p></div>
+  </div>
+
+  <h2>4. One task at a time</h2>
+  <div class="scroll"><table><tr><th>Slice</th><th>Deliverable</th><th>Acceptance check</th></tr>
+    <tr><td>1 · Implemented; Network evidence pending</td><td>Static local ESM graph + JSON inclusion paths + browser request demo.</td><td>Automated gates and browser Resource Timing checks pass. The independent DevTools Network capture for B2 remains pending; see the Task 1 implementation report.</td></tr>
+    <tr><td>2 · Next</td><td>Parser with source spans; scan static and literal dynamic imports; canonical IDs; initial versus lazy graph; deterministic JSON schema.</td><td>Fixtures cover strings/comments, re-exports, cycles, dynamic imports, bad syntax, and path resolution. Graph matches a reference parser.</td></tr>
+    <tr><td>3</td><td>Real browser ESM output: rewrite imports, emit hashed modules and HTML manifest. Preserve semantics before concatenating modules.</td><td>Browser integration tests for default/named/re-export, cycles, live bindings and top-level await; compare output to native ESM.</td></tr>
+    <tr><td>4</td><td>TypeScript type stripping and JSX transform through a documented compiler adapter; separate <code>tsc --noEmit</code> type checking.</td><td>TS/TSX demo builds; type errors fail the check; generated JS and source maps point back to source.</td></tr>
+    <tr><td>5</td><td>CSS graph and asset emission, dynamic chunks, preload decisions, and optional prefetch hints.</td><td>Cold and warm navigation traces prove exactly when CSS and lazy JS load; hints are visible in the manifest.</td></tr>
+    <tr><td>6</td><td>Conservative tree shaking and minification with side effect metadata; plugins and cache after semantics stabilize.</td><td>Side effect and live binding fixtures pass; unused pure exports shrink, and gzip size is measured.</td></tr>
+    <tr><td>7</td><td>Dev server with invalidation and HMR; React app, vanilla app, then Svelte adapter.</td><td>Cold start and edit latency measured on identical apps; browser state and failure recovery checked.</td></tr></table></div>
+  <p><strong>Why start with native ESM output?</strong> It gives a correctness baseline and exposes browser requests. Bundle concatenation, code splitting, tree shaking, and chunk loading can then be added without hiding semantic errors behind a custom runtime. React and Svelte support require framework transforms and plugin integration; they are explicit later milestones.</p>
+
+  <h2>5. Technical decisions worth proving</h2>
+  <ul>
+    <li><strong>Language and parser:</strong> Slice 1 is a small Node.js JavaScript prototype. Use TypeScript for the growing core from slice 2 onward: typed graph nodes, import edges, plugin contracts, and explanation records. The current experimental Node parser is temporary. A production parser must provide reliable syntax trees and source ranges; choose and benchmark candidates at slice 2. Rust is an option only if profiling identifies a meaningful bottleneck.</li>
+    <li><strong>TypeScript:</strong> Browsers execute JavaScript. Fast syntax conversion can remove types without checking them. Run type checking separately so “the build passed” cannot imply the program is type safe.</li>
+    <li><strong>Tree shaking:</strong> ESM names make usage analysis possible, but imports can execute side effects. Handle module and statement effects conservatively; never erase code because an export appears unused without proving that its evaluation is safe to omit.</li>
+    <li><strong>Multiple entries:</strong> Track each entry's reachability and share a module only when shared chunks reduce total bytes and requests for the target navigation profile. Record the policy and estimated cost.</li>
+    <li><strong>Prefetch:</strong> It is a browser hint for a possible future need, not proof of demand. Keep it opt-in until navigation traces justify it. Preload addresses current navigation dependencies and requires a separate decision.</li>
+    <li><strong>Agent interface:</strong> Offer stable JSON and a CLI such as <code>explain module</code>, <code>explain request</code>, and <code>compare builds</code>. Include evidence IDs and confidence/unknown fields. Avoid sending source contents or browsing traces to any external service by default.</li>
+  </ul>
+
+  <h2>6. Performance claims need a protocol</h2>
+  <p>Use the same source application, lockfile, browser, machine, target browsers, minification, source map settings, and cache state for each tool. Publish exact versions and commands. Repeat measurements, report medians and spread, and retain raw traces. Compare cold and warm dev startup, edit-to-screen latency, full production build duration, initial and route-specific transferred JS/CSS (raw and gzip), request count, and browser milestones such as LCP and INP where valid. A smaller bundle does not necessarily make a page faster; network conditions, parsing, execution, and caching matter.</p>
+  <div class="card"><strong>Honest portfolio claim today:</strong> “Built a dependency graph inspector and browser request explainer for ESM, with cycle and error handling tests.” Once a real bundler exists, describe the exact supported feature set. Make any “faster than X” statement only after the published comparison reproduces it.</div>
+
+  <h2>7. References</h2>
+  <ul><li><a href="https://webpack.js.org/concepts/dependency-graph/">Webpack dependency graph</a> and <a href="https://webpack.js.org/concepts/loaders/">loaders</a></li>
+    <li><a href="https://rollupjs.org/introduction/">Rollup introduction and tree shaking</a></li>
+    <li><a href="https://vite.dev/guide/why">Vite architecture and direction</a></li></ul>
+</main>
+</html>
